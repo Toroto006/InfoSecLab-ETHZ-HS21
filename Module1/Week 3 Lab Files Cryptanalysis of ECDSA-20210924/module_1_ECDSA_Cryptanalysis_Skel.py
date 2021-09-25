@@ -50,14 +50,15 @@ def recover_x_known_nonce(k, h, r, s, q):
     # Implement the "known nonce" cryptanalytic attack on ECDSA
     # The function is given the nonce k, (h, r, s) and the base point order q
     # The function should compute and return the secret signing key x
-    raise NotImplementedError()
+    return (mod_inv(r, q)*(k*s - h)) % q
 
 def recover_x_repeated_nonce(h_1, r_1, s_1, h_2, r_2, s_2, q):
     # Implement the "repeated nonces" cryptanalytic attack on ECDSA
     # The function is given the (hashed-message, signature) pairs (h_1, r_1, s_1) and (h_2, r_2, s_2) generated using the same nonce
     # The function should compute and return the secret signing key x
-    raise NotImplementedError()
-
+    l = h_1*s_2 - h_2*s_1
+    r = r_2*s_1 - r_1*s_2
+    return (l*mod_inv(r, q)) % q
 
 def MSB_to_Padded_Int(N, L, list_k_MSB):
     # Implement a function that does the following: 
@@ -137,8 +138,6 @@ def recover_x_partial_nonce_SVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h,
     list_of_f_List = solve_svp(svp_basis_B)
     # The function should recover the secret signing key x from the output of the SVP solver and return it
     raise NotImplementedError()
-
-
 
 # testing code: do not modify
 
