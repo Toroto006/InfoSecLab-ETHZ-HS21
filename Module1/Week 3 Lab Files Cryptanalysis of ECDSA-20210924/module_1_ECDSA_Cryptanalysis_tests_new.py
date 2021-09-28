@@ -1,7 +1,6 @@
 import unittest
 import filecmp
 from tqdm import tqdm
-import re
 
 num_Experiments = 50
 partial_nonce_instances = [
@@ -48,10 +47,6 @@ class TestCryptanalysis(unittest.TestCase):
                         #     print(f"Fail at SVP test givenbits {givenbits} algorithm {algorithm}")
                         self.assertTrue(filecmp.cmp(fn1, fn2))
 
-    def test_hnp_single_sample(self):
-        fn1 = f'testvectors_hnp_single_sample_256_128_temp.txt'
-        fn2 = f'testvectors_hnp_single_sample_256_128_output.txt'
-        self.assertTrue(filecmp.cmp(fn1, fn2))
 
 # Parameters for NIST P-256:
 q   = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
@@ -156,56 +151,23 @@ def generate_outputs(recover_x_known_nonce,
                     for x in list_x_SVP:
                         filehandle.write('\n%d\n' % (x))
 
-def generate_my_outputs(setup_hnp_single_sample, setup_hnp_all_samples):
-    # Unit testing of the "single sample hnp" attack on ECDSA
-
-    print("Solving HNP tests")
-    single_test_regex = r"list_k_MSB\s*=\s([1,0,\ ]*)\s\nh\s=\s(\d*)\s\nr\s=\s(\d*)\s\ns\s=\s(\d*)\s\nt\s=\s(\d*)\s\nu\s=\s([\d-]*)\s\n"
-    # testvectors_hnp_all_samples_256_128_100.txt
-    with open('testvectors_hnp_single_sample_256_128.txt', 'r') as filehandle:
-        content = filehandle.read()
-    with open('testvectors_hnp_single_sample_256_128_temp.txt', 'w') as fileout:
-        matches = re.finditer(single_test_regex, content, re.MULTILINE)
-        for match in matches:
-            #print ("Match {matchNum} was found at {start}-{end}: {match}".format(matchNum = matchNum, start = match.start(), end = match.end(), match = match.group()))
-            N, L = (256, 128)
-            list_k_MSB = map(int, match.group(1).strip().split(' '))
-            h = int(match.group(2))
-            r = int(match.group(3))
-            s = int(match.group(4))
-            t = int(match.group(5))
-            u = int(match.group(6))
-            if u < 0:
-                u = u % q
-            t_calculated, u_calculated = setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q)
-            fileout.write(f"diff ts: {t-t_calculated}\tdiff us:{u-u_calculated}\n")
 
 def run_tests(recover_x_known_nonce,
     recover_x_repeated_nonce,
     recover_x_partial_nonce_CVP,
-    recover_x_partial_nonce_SVP,
-    setup_hnp_single_sample,
-    setup_hnp_all_samples
+    recover_x_partial_nonce_SVP
     ):
 
-    # original generate outputs not failing with unimplemented
-    try:
-        generate_outputs(recover_x_known_nonce,
-            recover_x_repeated_nonce,
-            recover_x_partial_nonce_CVP,
-            recover_x_partial_nonce_SVP
-        )
-    except NotImplementedError:
-        pass
-
-    # my ouputs
-    generate_my_outputs(setup_hnp_single_sample, setup_hnp_all_samples)
+    generate_outputs(recover_x_known_nonce,
+        recover_x_repeated_nonce,
+        recover_x_partial_nonce_CVP,
+        recover_x_partial_nonce_SVP
+    )
 
     suite = unittest.TestSuite()
     suite.addTest(TestCryptanalysis('test_known_nonce_attack'))
     suite.addTest(TestCryptanalysis('test_repeated_nonce_attack'))
-    suite.addTest(TestCryptanalysis('test_hnp_single_sample'))
-    #suite.addTest(TestCryptanalysis('test_partial_nonce_attack_CVP'))
-    #suite.addTest(TestCryptanalysis('test_partial_nonce_attack_SVP'))
+    suite.addTest(TestCryptanalysis('test_partial_nonce_attack_CVP'))
+    suite.addTest(TestCryptanalysis('test_partial_nonce_attack_SVP'))
     runner = unittest.TextTestRunner()
     runner.run(suite)

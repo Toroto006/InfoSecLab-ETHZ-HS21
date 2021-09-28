@@ -9,26 +9,14 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 
-# Euclidean algorithm for gcd computation
 def egcd(a, b):
     # Implement the Euclidean algorithm for gcd computation
-    if a == 0:
-        return b, 0, 1
-    else:
-        g, y, x = egcd(b % a, a)
-        return g, x - (b // a) * y, y
+    raise NotImplementedError()
 
-# Modular inversion computation
 def mod_inv(a, p):
     # Implement a function to compute the inverse of a modulo p
     # Hint: Use the gcd algorithm implemented above
-    if a < 0:
-        return p - mod_inv(-a, p)
-    g, x, y = egcd(a, p)
-    if g != 1:
-        raise ArithmeticError("Modular inverse does not exist")
-    else:
-        return x % p
+    raise NotImplementedError()
 
 def check_x(x, Q):
     """ Given a guess for the secret key x and a public key Q = [x]P,
@@ -50,55 +38,33 @@ def recover_x_known_nonce(k, h, r, s, q):
     # Implement the "known nonce" cryptanalytic attack on ECDSA
     # The function is given the nonce k, (h, r, s) and the base point order q
     # The function should compute and return the secret signing key x
-    return (mod_inv(r, q)*(k*s - h)) % q
+    raise NotImplementedError()
 
 def recover_x_repeated_nonce(h_1, r_1, s_1, h_2, r_2, s_2, q):
     # Implement the "repeated nonces" cryptanalytic attack on ECDSA
     # The function is given the (hashed-message, signature) pairs (h_1, r_1, s_1) and (h_2, r_2, s_2) generated using the same nonce
     # The function should compute and return the secret signing key x
-    l = h_1*s_2 - h_2*s_1
-    r = r_2*s_1 - r_1*s_2
-    return (l*mod_inv(r, q)) % q
+    raise NotImplementedError()
 
-def _bit_list_to_int(bits):
-    return int("0b"+''.join(map(str, bits)), 2) # convert list of bits to 0bxxx and convert to int
 
 def MSB_to_Padded_Int(N, L, list_k_MSB):
     # Implement a function that does the following: 
     # Let a is the integer represented by the L most significant bits of the nonce k 
     # The function should return a.2^{N - L} + 2^{N -L -1}
-    # calculate a from list_k_MS
-    a = _bit_list_to_int(list_k_MSB)
-    # return actual value partial u
-    return a * 2**(N-L) + 2**(N-L-1)
+    raise NotImplementedError()
 
 def LSB_to_Int(list_k_LSB):
     # Implement a function that does the following: 
     # Let a is the integer represented by the L least significant bits of the nonce k 
     # The function should return a
-    list_k_LSB.reverse() # reverse to get MSB in the front
-    return _bit_list_to_int(list_k_LSB) # use same way as MSB_to_Padded_Int
+    raise NotImplementedError()
 
 def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algorithm="ecdsa"):
     # Implement a function that sets up a single instance for the hidden number problem (HNP)
     # The function is given a list of the L most significant bts of the N-bit nonce k, along with (h, r, s) and the base point order q
     # The function should return (t, u) computed as described in the lectures
     # In the case of EC-Schnorr, r may be set to h
-    if algorithm == "ecdsa":
-        # ECDSA
-        inv_s = mod_inv(s, q)
-        t = r * inv_s % q
-        if givenbits == "msbs":
-            partial_u = MSB_to_Padded_Int(N, L, list_k_MSB)
-            u = (partial_u - (h * inv_s)) % q
-        else:
-            raise NotImplementedError()
-            u = 0
-    else:
-        # ECschnorr
-        raise NotImplementedError()
-    return (t, u)
-    
+    raise NotImplementedError()
 
 def setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits="msbs", algorithm="ecdsa"):
     # Implement a function that sets up n = num_Samples many instances for the hidden number problem (HNP)
@@ -160,6 +126,8 @@ def recover_x_partial_nonce_SVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h,
     # The function should recover the secret signing key x from the output of the SVP solver and return it
     raise NotImplementedError()
 
+
+
 # testing code: do not modify
 
 from module_1_ECDSA_Cryptanalysis_tests import run_tests
@@ -167,7 +135,5 @@ from module_1_ECDSA_Cryptanalysis_tests import run_tests
 run_tests(recover_x_known_nonce,
     recover_x_repeated_nonce,
     recover_x_partial_nonce_CVP,
-    recover_x_partial_nonce_SVP,
-    setup_hnp_single_sample,
-    setup_hnp_all_samples
+    recover_x_partial_nonce_SVP
 )
