@@ -91,13 +91,14 @@ def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algo
         if givenbits == "msbs":
             partial_u = MSB_to_Padded_Int(N, L, list_k_MSB)
             u = (partial_u - (h * inv_s)) % q
+            # TODO maybe recheck why here q offset sometimes??
         else:
             raise NotImplementedError()
             u = 0
     else:
         # ECschnorr
         raise NotImplementedError()
-    return (t, u)
+    return t, u
     
 
 def setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits="msbs", algorithm="ecdsa"):
@@ -106,7 +107,22 @@ def setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, 
     # The function should return a list of t values and a list of u values computed as described in the lectures
     # Hint: Use the function you implemented above to set up the t and u values for each instance
     # In the case of EC-Schnorr, list_r may be set to list_h
-    raise NotImplementedError()
+    ts = []
+    us = []
+    if algorithm == "ecdsa":
+        # ECDSA
+        if givenbits == "msbs":
+            for list_k, h, r, s in zip(listoflists_k_MSB, list_h, list_r, list_s):
+                t, u = setup_hnp_single_sample(N, L, list_k, h, r, s, q, givenbits, algorithm)
+                ts.append(t)
+                us.append(u)
+        else:
+            # lsbs
+            raise NotImplementedError()
+    else:
+        # ECschnorr
+        raise NotImplementedError()
+    return ts, us
 
 def hnp_to_cvp(N, L, num_Samples, list_t, list_u, q):
     # Implement a function that takes as input an instance of HNP and converts it into an instance of the closest vector problem (CVP)

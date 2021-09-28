@@ -53,6 +53,11 @@ class TestCryptanalysis(unittest.TestCase):
         fn2 = f'testvectors_hnp_single_sample_256_128_output.txt'
         self.assertTrue(filecmp.cmp(fn1, fn2))
 
+    def testvectors_hnp_all_samples_256_128(self):
+        fn1 = f'testvectors_hnp_all_samples_256_128_100_output.txt'
+        fn2 = f'testvectors_hnp_all_samples_256_128_100_temp.txt'
+        self.assertTrue(filecmp.cmp(fn1, fn2))
+
 # Parameters for NIST P-256:
 q   = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
 
@@ -161,7 +166,6 @@ def generate_my_outputs(setup_hnp_single_sample, setup_hnp_all_samples):
 
     print("Solving HNP tests")
     single_test_regex = r"list_k_MSB\s*=\s([1,0,\ ]*)\s\nh\s=\s(\d*)\s\nr\s=\s(\d*)\s\ns\s=\s(\d*)\s\nt\s=\s(\d*)\s\nu\s=\s([\d-]*)\s\n"
-    # testvectors_hnp_all_samples_256_128_100.txt
     with open('testvectors_hnp_single_sample_256_128.txt', 'r') as filehandle:
         content = filehandle.read()
     with open('testvectors_hnp_single_sample_256_128_temp.txt', 'w') as fileout:
@@ -175,10 +179,32 @@ def generate_my_outputs(setup_hnp_single_sample, setup_hnp_all_samples):
             s = int(match.group(4))
             t = int(match.group(5))
             u = int(match.group(6))
-            if u < 0:
+            if u < 0: # TODO this does not seem right
                 u = u % q
             t_calculated, u_calculated = setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q)
             fileout.write(f"diff ts: {t-t_calculated}\tdiff us:{u-u_calculated}\n")
+
+    # Unit testing of the "single sample hnp" attack on ECDSA
+    N_SAMPLES = 5
+    all_samples_regex = r"listoflists_k_MSB:\n([1,0,\ \n]*)\nlist_h:\n([\d\s]*)\nlist_r:\n([\d\s]*)\nlist_s:\n([\d\s]*)\nlist_t:\n([\d\s]*)\nlist_u:\n([-\d\s]*)"
+    with open('testvectors_hnp_all_samples_256_128_100.txt', 'r') as filehandle:
+        content = filehandle.read()
+    with open('testvectors_hnp_all_samples_256_128_100_temp.txt', 'w') as fileout:
+        matches = re.finditer(all_samples_regex, content, re.MULTILINE)
+        for match in matches:
+            #print ("Match {matchNum} was found at {start}-{end}: {match}".format(matchNum = matchNum, start = match.start(), end = match.end(), match = match.group()))
+            N, L = (256, 128)
+            listoflists_k_MSB = map(lambda x: list(map(int, x.strip().split(' '))), match.group(1).strip().split('\n'))
+            h = map(int, match.group(2).strip().split(' '))
+            r = map(int, match.group(3).strip().split(' '))
+            s = map(int, match.group(4).strip().split(' '))
+            t_list = map(int, match.group(5).strip().split(' '))
+            u_list = map(int, match.group(6).strip().split(' '))
+            ts, us = setup_hnp_all_samples(N, L, N_SAMPLES, listoflists_k_MSB, h, r, s, q)
+            for t, u, t_calculated, u_calculated in zip(t_list, u_list, ts, us):
+                if u < 0: # TODO this does not seem right
+                    u = u + q
+                fileout.write(f"diff ts: {t-t_calculated}\tdiff us:{u-u_calculated}\n")
 
 def run_tests(recover_x_known_nonce,
     recover_x_repeated_nonce,
@@ -205,6 +231,7 @@ def run_tests(recover_x_known_nonce,
     suite.addTest(TestCryptanalysis('test_known_nonce_attack'))
     suite.addTest(TestCryptanalysis('test_repeated_nonce_attack'))
     suite.addTest(TestCryptanalysis('test_hnp_single_sample'))
+    suite.addTest(TestCryptanalysis('testvectors_hnp_all_samples_256_128'))
     #suite.addTest(TestCryptanalysis('test_partial_nonce_attack_CVP'))
     #suite.addTest(TestCryptanalysis('test_partial_nonce_attack_SVP'))
     runner = unittest.TextTestRunner()
