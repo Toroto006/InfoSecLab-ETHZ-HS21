@@ -7,7 +7,7 @@ from fpylll import CVP
 from fpylll import SVP
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-
+import numpy as np
 
 # Euclidean algorithm for gcd computation
 def egcd(a, b):
@@ -91,6 +91,9 @@ def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algo
         if givenbits == "msbs":
             partial_u = MSB_to_Padded_Int(N, L, list_k_MSB)
             u = (partial_u - (h * inv_s)) % q
+            if u > int(q/2)-1:
+                u = u - q
+            #assert -int(q/2) < u < int(q/2)
             # TODO maybe recheck why here q offset sometimes??
         else:
             raise NotImplementedError()
@@ -129,7 +132,28 @@ def hnp_to_cvp(N, L, num_Samples, list_t, list_u, q):
     # The function is given as input a list of t values, a list of u values and the base point order q
     # The function should return the CVP basis matrix B (to be implemented as a nested list) and the CVP target vector u (to be implemented as a list)
     # NOTE: The basis matrix B and the CVP target vector u should be scaled appropriately. Refer lecture slides and lab sheet for more details 
-    raise NotImplementedError()
+    #for t in list_t + list_u: # test for integral parts...
+    #    assert type(t) == int
+    # Create B
+    scalar = 2**(L+1)
+    # TODO scaler appropriate ??
+    B_cvp = np.diag([q*scalar]*(num_Samples+1)) # first create the diag q matrix
+    one_over = int(1/2**(L+1)*scalar)           # calculate the lower right element
+    scaled_ts = list(map(lambda x: x*scalar, list_t)) # scale the ts
+    last_row = np.array(scaled_ts+[one_over])      # create last row with ts and lower right element
+    B_cvp[num_Samples] = last_row               # Set the last row of the B matrix
+    #print(f"one over: {B_cvp}")
+    # Create u
+    scaled_us = list(map(lambda x: x*scalar, list_u)) # scale the us
+    u_cvp = np.array(scaled_us+[0])                # lets go over np to do changes later
+    # Convert to fpylll format
+    # maybe make merge request for correct error message https://github.com/fplll/fpylll/blob/1a99a15c6eebf61240a3b2c15ce9bde0ad470d13/src/fpylll/fplll/integer_matrix.pyx#L397
+    converted_B_cvp = IntegerMatrix.from_matrix(B_cvp.tolist())
+    converted_u_cvp = u_cvp.tolist()
+    return converted_B_cvp, converted_u_cvp
+    # TODO Q1: x - q returned? --> Maybe centering u does not make this likely?
+    # Q2: fpylll can handle non integral? --> No, conversion just silently crashes...
+    # TODO Q3: how to transform it? --> No clue, maybe just * scalar?
 
 def cvp_to_svp(N, L, num_Samples, cvp_basis_B, cvp_list_u):
     # Implement a function that takes as input an instance of CVP and converts it into an instance of the shortest vector problem (SVP)
@@ -145,7 +169,14 @@ def solve_cvp(cvp_basis_B, cvp_list_u):
     # The function is given as input a CVP basis matrix B and the CVP target vector u
     # The function should output the solution vector v (to be implemented as a list)
     # NOTE: The basis matrix B should be processed appropriately before being passes to the fpylll CVP-solver. See lab sheet for more details
-    raise NotImplementedError()
+    # Q4: some pre-processing? --> "closest_vector assumes that the input basis is LLL reduced" src:https://github.com/fplll/fpylll/issues/124
+    # Q5: what to use? --> use LLL.reduce
+    #print("starting reduction")
+    LLL.reduction(cvp_basis_B)
+    if len(cvp_basis_B[0]) > 21:
+        print("starting closest_vector")
+    v = CVP.closest_vector(cvp_basis_B, cvp_list_u, method="fast")
+    return list(v)
 
 def solve_svp(svp_basis_B):
     # Implement a function that takes as input an instance of SVP and solves it using in-built SVP-solver functions from the fpylll library
@@ -154,6 +185,7 @@ def solve_svp(svp_basis_B):
     # NOTE: Recall from the lecture and also from the exercise session that for ECDSA cryptanalysis based on partial nonces, you might want
     #       your function to include in the list of candidate vectors the *second* shortest vector (or even a later one). 
     # If required, figure out how to get the in-built SVP-solver functions from the fpylll library to return the second (or later) shortest vector
+    # max_aux_sols=0
     raise NotImplementedError()
 
 
@@ -164,7 +196,11 @@ def recover_x_partial_nonce_CVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h,
     cvp_basis_B, cvp_list_u = hnp_to_cvp(N, L, num_Samples, list_t, list_u, q)
     v_List = solve_cvp(cvp_basis_B, cvp_list_u)
     # The function should recover the secret signing key x from the output of the CVP solver and return it
-    raise NotImplementedError()
+    # TODO is correct?
+    # as we scaled to have x lower right element, return that x?
+    x = v_List[len(v_List)-1]%q
+    #print(f"in N:{N} with L:{L} and {num_Samples} samples we have {check_x(x, Q)}") # --> TRUE up to 20 samples???
+    return x
 
 def recover_x_partial_nonce_SVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits="msbs", algorithm="ecdsa"):
     # Implement the "repeated nonces" cryptanalytic attack on ECDSA and EC-Schnorr using the in-built CVP-solver functions from the fpylll library
