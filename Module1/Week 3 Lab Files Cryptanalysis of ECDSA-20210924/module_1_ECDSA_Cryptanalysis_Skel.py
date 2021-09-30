@@ -1,5 +1,7 @@
 import math
 import random
+import numpy as np
+import copy
 from fpylll import LLL
 from fpylll import BKZ
 from fpylll import IntegerMatrix
@@ -7,7 +9,6 @@ from fpylll import CVP
 from fpylll import SVP
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-import numpy as np
 
 # Euclidean algorithm for gcd computation
 def egcd(a, b):
@@ -76,7 +77,6 @@ def LSB_to_Int(list_k_LSB):
     # Implement a function that does the following: 
     # Let a is the integer represented by the L least significant bits of the nonce k 
     # The function should return a
-    list_k_LSB.reverse() # reverse to get MSB in the front
     return _bit_list_to_int(list_k_LSB) # use same way as MSB_to_Padded_Int
 
 def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algorithm="ecdsa"):
@@ -84,6 +84,8 @@ def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algo
     # The function is given a list of the L most significant bts of the N-bit nonce k, along with (h, r, s) and the base point order q
     # The function should return (t, u) computed as described in the lectures
     # In the case of EC-Schnorr, r may be set to h
+    list_k_MSB = list(list_k_MSB)[:L] # shitty input as there might be k...
+    assert len(list_k_MSB) == L
     if algorithm == "ecdsa":
         # ECDSA
         inv_s = mod_inv(s, q)
@@ -91,16 +93,30 @@ def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algo
         if givenbits == "msbs":
             partial_u = MSB_to_Padded_Int(N, L, list_k_MSB)
             u = (partial_u - (h * inv_s)) % q
-            if u > int(q/2)-1:
-                u = u - q
-            #assert -int(q/2) < u < int(q/2)
-            # TODO maybe recheck why here q offset sometimes??
         else:
-            raise NotImplementedError()
-            u = 0
+            a = LSB_to_Int(list_k_MSB)
+            u = (a - (h * inv_s)) % q
+            # to get 2**L away from e
+            divisor = 2**L
+            t = (t* mod_inv(divisor, q)) % q
+            u = (u* mod_inv(divisor, q)) % q
     else:
         # ECschnorr
-        raise NotImplementedError()
+        t = h
+        if givenbits == "msbs":
+            partial_u = MSB_to_Padded_Int(N, L, list_k_MSB)
+            u = (partial_u - s) % q
+        else:
+            a = LSB_to_Int(list_k_MSB)
+            u = (a - s) % q
+            # to get 2**L away from e
+            divisor = 2**L
+            t = (t* mod_inv(divisor, q)) % q
+            u = (u* mod_inv(divisor, q)) % q
+    if u > int(q/2)-1:
+        u = u - q
+    #assert -int(q/2) < u < int(q/2)
+    # TODO maybe recheck why here q offset sometimes??
     return t, u
     
 
@@ -112,19 +128,10 @@ def setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, 
     # In the case of EC-Schnorr, list_r may be set to list_h
     ts = []
     us = []
-    if algorithm == "ecdsa":
-        # ECDSA
-        if givenbits == "msbs":
-            for list_k, h, r, s in zip(listoflists_k_MSB, list_h, list_r, list_s):
-                t, u = setup_hnp_single_sample(N, L, list_k, h, r, s, q, givenbits, algorithm)
-                ts.append(t)
-                us.append(u)
-        else:
-            # lsbs
-            raise NotImplementedError()
-    else:
-        # ECschnorr
-        raise NotImplementedError()
+    for list_k, h, r, s in zip(listoflists_k_MSB, list_h, list_r, list_s):
+        t, u = setup_hnp_single_sample(N, L, list_k, h, r, s, q, givenbits, algorithm)
+        ts.append(t)
+        us.append(u)
     return ts, us
 
 def hnp_to_cvp(N, L, num_Samples, list_t, list_u, q):
@@ -132,8 +139,6 @@ def hnp_to_cvp(N, L, num_Samples, list_t, list_u, q):
     # The function is given as input a list of t values, a list of u values and the base point order q
     # The function should return the CVP basis matrix B (to be implemented as a nested list) and the CVP target vector u (to be implemented as a list)
     # NOTE: The basis matrix B and the CVP target vector u should be scaled appropriately. Refer lecture slides and lab sheet for more details 
-    #for t in list_t + list_u: # test for integral parts...
-    #    assert type(t) == int
     # Create B
     scalar = 2**(L+1)
     # TODO scaler appropriate ??
@@ -155,14 +160,65 @@ def hnp_to_cvp(N, L, num_Samples, list_t, list_u, q):
     # Q2: fpylll can handle non integral? --> No, conversion just silently crashes...
     # TODO Q3: how to transform it? --> No clue, maybe just * scalar?
 
+def determinant_recursive(A, total=0):
+    # Section 1: store indices in list for row referencing
+    indices = list(range(len(A)))
+     
+    # Section 2: when at 2x2 submatrices recursive calls end
+    if len(A) == 2 and len(A[0]) == 2:
+        val = A[0][0] * A[1][1] - A[1][0] * A[0][1]
+        return val
+ 
+    # Section 3: define submatrix for focus column and 
+    #      call this function
+    for fc in indices: # A) for each focus column, ...
+        # find the submatrix ...
+        As = copy.deepcopy(A) # B) make a copy, and ...
+        As = As[1:] # ... C) remove the first row
+        height = len(As) # D) 
+ 
+        for i in range(height): 
+            # E) for each remaining row of submatrix ...
+            #     remove the focus column elements
+            As[i] = As[i][0:fc] + As[i][fc+1:] 
+ 
+        sign = (-1) ** (fc % 2) # F) 
+        # G) pass submatrix recursively
+        sub_det = determinant_recursive(As)
+        # H) total all returns from recursion
+        total += sign * A[0][fc] * sub_det 
+ 
+    return total
+
+def interger_mat_to_list(A):
+    ret = []
+    for i in range(0, A.nrows):
+        ret.append(list(A[i]))
+    return ret
+
 def cvp_to_svp(N, L, num_Samples, cvp_basis_B, cvp_list_u):
     # Implement a function that takes as input an instance of CVP and converts it into an instance of the shortest vector problem (SVP)
     # Your function should use the Kannan embedding technique in the lecture slides
     # The function is given as input a CVP basis matrix B and the CVP target vector u
     # The function should use the Kannan embedding technique to output the corresponding SVP basis matrix B' of apropriate dimensions.
     # The SVP basis matrix B' should again be implemented as a nested list
-    raise NotImplementedError()
-
+    # Matrix to build: [[B_cvp , 0], [u_cvp, M]]
+    # fp is short vector of above with: [f, M], where f = u_cvp - v
+    #det_B_cvp = determinant_recursive(interger_mat_to_list(cvp_basis_B))
+    #print(det_B_cvp)
+    B_svp = IntegerMatrix(cvp_basis_B)
+    B_svp.resize(cvp_basis_B.nrows+1, cvp_basis_B.ncols+1)
+    # TODO Q6: --> M = "lamb_1/2" == (shortest non-zero vectors length)/2 of B_cvp?
+    M = 500 # No clue how to calculate this??
+    # Q7: how to scale M to preserve SVP correctness --> probably also scale with scalar
+    scalar = 2**(L+1)
+    M *= scalar
+    last_row = cvp_list_u + [M]
+    # set the last row
+    for i in range(0, len(last_row)):
+        B_svp[num_Samples+1,i] = last_row[i]
+    
+    return B_svp
 
 def solve_cvp(cvp_basis_B, cvp_list_u):
     # Implement a function that takes as input an instance of CVP and solves it using in-built CVP-solver functions from the fpylll library
@@ -170,11 +226,9 @@ def solve_cvp(cvp_basis_B, cvp_list_u):
     # The function should output the solution vector v (to be implemented as a list)
     # NOTE: The basis matrix B should be processed appropriately before being passes to the fpylll CVP-solver. See lab sheet for more details
     # Q4: some pre-processing? --> "closest_vector assumes that the input basis is LLL reduced" src:https://github.com/fplll/fpylll/issues/124
-    # Q5: what to use? --> use LLL.reduce
+    # Q5: what to use? --> use LLL.reduction
     #print("starting reduction")
     LLL.reduction(cvp_basis_B)
-    if len(cvp_basis_B[0]) > 21:
-        print("starting closest_vector")
     v = CVP.closest_vector(cvp_basis_B, cvp_list_u, method="fast")
     return list(v)
 
@@ -185,14 +239,21 @@ def solve_svp(svp_basis_B):
     # NOTE: Recall from the lecture and also from the exercise session that for ECDSA cryptanalysis based on partial nonces, you might want
     #       your function to include in the list of candidate vectors the *second* shortest vector (or even a later one). 
     # If required, figure out how to get the in-built SVP-solver functions from the fpylll library to return the second (or later) shortest vector
-    # max_aux_sols=0
-    raise NotImplementedError()
+    # Q8: Yes preprocessing makes it quicker --> the new SVP solver uses the following or run_lll?
+    #svp_basis_B = BKZ.reduction(svp_basis_B, BKZ.EasyParam(max(svp_basis_B.nrows - 10, 2)))
+    # args: ('B', 'method', 'flags', 'pruning', 'run_lll', 'max_aux_sols', 'method_', 'r', 'sol_coord', 'solution', 'pruning_', 'auxsol_coord', 'auxsol_dist', 'i', 'v', 'aux', 'j', 'aux_sol')
+    fps = SVP.shortest_vector(svp_basis_B, run_lll=True, max_aux_sols=2)
+    # get fs from fprimes
+    list_fs = []
+    for l in fps:
+        list_fs.append(l[:-1])
+    return list_fs
 
 
 def recover_x_partial_nonce_CVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits="msbs", algorithm="ecdsa"):
     # Implement the "repeated nonces" cryptanalytic attack on ECDSA and EC-Schnorr using the in-built CVP-solver functions from the fpylll library
     # The function is partially implemented for you. Note that it invokes some of the functions that you have already implemented
-    list_t, list_u = setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q)
+    list_t, list_u = setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits, algorithm)
     cvp_basis_B, cvp_list_u = hnp_to_cvp(N, L, num_Samples, list_t, list_u, q)
     v_List = solve_cvp(cvp_basis_B, cvp_list_u)
     # The function should recover the secret signing key x from the output of the CVP solver and return it
@@ -205,12 +266,20 @@ def recover_x_partial_nonce_CVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h,
 def recover_x_partial_nonce_SVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits="msbs", algorithm="ecdsa"):
     # Implement the "repeated nonces" cryptanalytic attack on ECDSA and EC-Schnorr using the in-built CVP-solver functions from the fpylll library
     # The function is partially implemented for you. Note that it invokes some of the functions that you have already implemented
-    list_t, list_u = setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q)
+    list_t, list_u = setup_hnp_all_samples(N, L, num_Samples, listoflists_k_MSB, list_h, list_r, list_s, q, givenbits, algorithm)
     cvp_basis_B, cvp_list_u = hnp_to_cvp(N, L, num_Samples, list_t, list_u, q)
     svp_basis_B = cvp_to_svp(N, L, num_Samples, cvp_basis_B, cvp_list_u)
     list_of_f_List = solve_svp(svp_basis_B)
     # The function should recover the secret signing key x from the output of the SVP solver and return it
-    raise NotImplementedError()
+    # TODO Q9: there should be a [ 0 .. q 0 ] somewhere? --> didn't find it yet
+    # Q10: convinced the vector is usually the second shortest, use that
+    f = list_of_f_List[0]
+    v = list(map(lambda a, b: a - b, cvp_list_u, f))
+    assert len(v)-1 == num_Samples # check that we did at least the size calculations correct
+    # Q11: bc CVP is already scaled, what do you expect? --> similar to directly doing CVP we get x directly back
+    x = v[len(v)-1]%q
+    #print(check_x(x, Q))
+    return x
 
 # testing code: do not modify
 
@@ -219,7 +288,5 @@ from module_1_ECDSA_Cryptanalysis_tests import run_tests
 run_tests(recover_x_known_nonce,
     recover_x_repeated_nonce,
     recover_x_partial_nonce_CVP,
-    recover_x_partial_nonce_SVP,
-    setup_hnp_single_sample,
-    setup_hnp_all_samples
+    recover_x_partial_nonce_SVP
 )
