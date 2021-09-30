@@ -283,7 +283,7 @@ def recover_x_partial_nonce_SVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h,
 
 # testing code: do not modify
 
-from module_1_ECDSA_Cryptanalysis_tests import run_tests
+from module_1_ECDSA_Cryptanalysis_tests_modified import run_tests
 
 run_tests(recover_x_known_nonce,
     recover_x_repeated_nonce,
