@@ -115,7 +115,7 @@ def setup_hnp_single_sample(N, L, list_k_MSB, h, r, s, q, givenbits="msbs", algo
             u = (u* mod_inv(divisor, q)) % q
     if u > int(q/2)-1:
         u = u - q
-    #assert -int(q/2) < u < int(q/2)
+    assert -int(q/2) < u < int(q/2)
     # TODO maybe recheck why here q offset sometimes??
     return t, u
     
@@ -160,36 +160,6 @@ def hnp_to_cvp(N, L, num_Samples, list_t, list_u, q):
     # Q2: fpylll can handle non integral? --> No, conversion just silently crashes...
     # TODO Q3: how to transform it? --> No clue, maybe just * scalar?
 
-def determinant_recursive(A, total=0):
-    # Section 1: store indices in list for row referencing
-    indices = list(range(len(A)))
-     
-    # Section 2: when at 2x2 submatrices recursive calls end
-    if len(A) == 2 and len(A[0]) == 2:
-        val = A[0][0] * A[1][1] - A[1][0] * A[0][1]
-        return val
- 
-    # Section 3: define submatrix for focus column and 
-    #      call this function
-    for fc in indices: # A) for each focus column, ...
-        # find the submatrix ...
-        As = copy.deepcopy(A) # B) make a copy, and ...
-        As = As[1:] # ... C) remove the first row
-        height = len(As) # D) 
- 
-        for i in range(height): 
-            # E) for each remaining row of submatrix ...
-            #     remove the focus column elements
-            As[i] = As[i][0:fc] + As[i][fc+1:] 
- 
-        sign = (-1) ** (fc % 2) # F) 
-        # G) pass submatrix recursively
-        sub_det = determinant_recursive(As)
-        # H) total all returns from recursion
-        total += sign * A[0][fc] * sub_det 
- 
-    return total
-
 def interger_mat_to_list(A):
     ret = []
     for i in range(0, A.nrows):
@@ -204,12 +174,14 @@ def cvp_to_svp(N, L, num_Samples, cvp_basis_B, cvp_list_u):
     # The SVP basis matrix B' should again be implemented as a nested list
     # Matrix to build: [[B_cvp , 0], [u_cvp, M]]
     # fp is short vector of above with: [f, M], where f = u_cvp - v
-    #det_B_cvp = determinant_recursive(interger_mat_to_list(cvp_basis_B))
-    #print(det_B_cvp)
+    # TODO Q6: --> M = "lamb_1/2" == (shortest non-zero vectors length)/2 of B_cvp?
+    #M = lamb_1/2 # No clue how to calculate this??
+    power = num_Samples/(num_Samples+1) # because the num_Samples is the qs and then we have the 1
+    det_power_over_n = cvp_basis_B[0, 0]**power#+1
+    constant = ((num_Samples+1)/2*math.pi*math.e)**(1/2)
+    M = int(2/constant*det_power_over_n)**num_Samples # calculated M for when lamb_1/2 = M
     B_svp = IntegerMatrix(cvp_basis_B)
     B_svp.resize(cvp_basis_B.nrows+1, cvp_basis_B.ncols+1)
-    # TODO Q6: --> M = "lamb_1/2" == (shortest non-zero vectors length)/2 of B_cvp?
-    M = 500 # No clue how to calculate this??
     # Q7: how to scale M to preserve SVP correctness --> probably also scale with scalar
     scalar = 2**(L+1)
     M *= scalar
@@ -217,7 +189,8 @@ def cvp_to_svp(N, L, num_Samples, cvp_basis_B, cvp_list_u):
     # set the last row
     for i in range(0, len(last_row)):
         B_svp[num_Samples+1,i] = last_row[i]
-    
+    #for r in interger_mat_to_list(B_svp):
+    #    print(r)
     return B_svp
 
 def solve_cvp(cvp_basis_B, cvp_list_u):
@@ -242,7 +215,12 @@ def solve_svp(svp_basis_B):
     # Q8: Yes preprocessing makes it quicker --> the new SVP solver uses the following or run_lll?
     #svp_basis_B = BKZ.reduction(svp_basis_B, BKZ.EasyParam(max(svp_basis_B.nrows - 10, 2)))
     # args: ('B', 'method', 'flags', 'pruning', 'run_lll', 'max_aux_sols', 'method_', 'r', 'sol_coord', 'solution', 'pruning_', 'auxsol_coord', 'auxsol_dist', 'i', 'v', 'aux', 'j', 'aux_sol')
-    fps = SVP.shortest_vector(svp_basis_B, run_lll=True, max_aux_sols=2)
+    LLL.reduction(svp_basis_B)
+    fps = SVP.shortest_vector(svp_basis_B, run_lll=True, method="proved", max_aux_sols=1)
+    #print("starting")
+    #fps = BKZ.reduction(svp_basis_B, BKZ.EasyParam(2))
+    #print(fps)
+    #exit()
     # get fs from fprimes
     list_fs = []
     for l in fps:
@@ -273,8 +251,9 @@ def recover_x_partial_nonce_SVP(Q, N, L, num_Samples, listoflists_k_MSB, list_h,
     # The function should recover the secret signing key x from the output of the SVP solver and return it
     # TODO Q9: there should be a [ 0 .. q 0 ] somewhere? --> didn't find it yet
     # Q10: convinced the vector is usually the second shortest, use that
-    f = list_of_f_List[0]
+    f = list_of_f_List[1]
     v = list(map(lambda a, b: a - b, cvp_list_u, f))
+    #print(list_of_f_List)
     assert len(v)-1 == num_Samples # check that we did at least the size calculations correct
     # Q11: bc CVP is already scaled, what do you expect? --> similar to directly doing CVP we get x directly back
     x = v[len(v)-1]%q
