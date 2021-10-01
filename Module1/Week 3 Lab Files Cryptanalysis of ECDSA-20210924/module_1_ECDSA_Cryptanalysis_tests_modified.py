@@ -6,10 +6,10 @@ import re
 num_Experiments = 50
 partial_nonce_instances = [
     # (N, L, num_Samples)
-    (256, 128, 5),
+    #(256, 128, 5),
     #(256, 32, 10),
     #(256, 16, 20),
-    #(256, 8, 60),
+    (256, 8, 60),
 ]
 
 class TestCryptanalysis(unittest.TestCase):
