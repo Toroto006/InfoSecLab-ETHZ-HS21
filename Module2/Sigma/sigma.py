@@ -419,7 +419,7 @@ class SIGMA():
 			ptxt = aes_gcm_dec(self.enc_key, client_msg, "Finished".encode())
 			# PARSE THE PLAINTEXT VIA INTO
 			#	client_id, client_signature, client_mac_tag
-			client_id, client_signature, client_mac_tag = parse_ecdsa_client_resp(client_msg)
+			client_id, client_signature, client_mac_tag = parse_ecdsa_client_resp(ptxt)
 
 		if (self.id_hide_flag == False):
 			# PARSE THE MESSAGE INTO
