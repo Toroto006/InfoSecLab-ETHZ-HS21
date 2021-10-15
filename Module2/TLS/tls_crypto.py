@@ -10,7 +10,7 @@ from math import ceil
 from tinyec import registry, ec
 import secrets
 import binascii
-import tls_constants
+from tls_constants import *
 from tls_error import *
 from Cryptodome.Cipher import AES, ChaCha20_Poly1305
 from Cryptodome.Hash import HMAC, SHA256, SHA384
@@ -99,15 +99,51 @@ class HKDF:
 		return ex_secret[:length]
 
 def tls_transcript_hash(csuite, context):
-	raise NotImplementedError()
+	if csuite == TLS_AES_128_GCM_SHA256 or csuite == TLS_CHACHA20_POLY1305_SHA256:
+		# SHA256
+		hash_object = SHA256.new(data=context)
+		SHA_LEN = SHA_256_LEN
+	if csuite == TLS_AES_256_GCM_SHA384:
+		# SHA384
+		hash_object = SHA384.new(data=context)
+		SHA_LEN = SHA_384_LEN
+	
+	# Do the things for both
+	hash_object.digest_size = SHA_LEN # not sure if this is the corret way, but passes test?
+	digest = hash_object.digest()
+	assert len(digest) == SHA_LEN
+	return digest
 
-def tls_hkdf_label(label, context, length):
-	raise NotImplementedError()
+def tls_hkdf_label(label, context, length: int):
+	# CONVERT BYTES TO INT and back
+	#x_int = int.from_bytes(x_bytes, byteorder='big', signed=False)
+	#x_bytes = x_int.to_bytes(EC_COORDINATE_LEN, byteorder='big')
+	len_bytes = length.to_bytes(2, byteorder='big')
+	assert len(label) <= 255-7
+	label_bytes = b"tls13 "+label
+	label_size = (len(label_bytes)).to_bytes(1, byteorder='big')
+	assert len(context) <= 255
+	context_size = (len(context)).to_bytes(1, byteorder='big')
+	hkdf_label = len_bytes + label_size + label_bytes + context_size + context
+	assert len(hkdf_label) == 2+(1+6+len(label))+(1+len(context))
+	return hkdf_label
 
 def tls_derive_key_iv(csuite, secret):
-	raise NotImplementedError()
+	hkdf = HKDF(csuite)
+	#[sender]_write_key = HKDF-Expand-Label(Secret, "key", "", key_length)
+	hkdf_label_key = tls_hkdf_label(b"key", b"", KEY_LEN[csuite])
+	key = hkdf.tls_hkdf_expand(secret, hkdf_label_key, KEY_LEN[csuite])
+	#hkdf = HKDF(csuite)
+	#[sender]_write_iv = HKDF-Expand-Label(Secret, "iv", "", iv_length)
+	hkdf_label_iv = tls_hkdf_label(b"iv", b"", KEY_LEN[csuite])
+	iv = hkdf.tls_hkdf_expand(secret, hkdf_label_iv, KEY_LEN[csuite])
+	return key, iv # bytes
 
 def tls_extract_secret(csuite, keying_material, salt):
+	if csuite == TLS_AES_128_GCM_SHA256 or csuite == TLS_CHACHA20_POLY1305_SHA256:
+		pass
+	if csuite == TLS_AES_256_GCM_SHA384:
+		pass
 	raise NotImplementedError()
 
 def tls_derive_secret(csuite, secret, label, messages):

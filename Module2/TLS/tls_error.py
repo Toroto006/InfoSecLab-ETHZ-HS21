@@ -8,7 +8,9 @@ Contains the functions needed to raise errors throughout the TLS protocol
 import tls_constants
 
 class TLSError(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        print("Generi TLS error")
 
 class NoCommonGroupError(TLSError):
     pass
