@@ -69,6 +69,11 @@ def get_ecdsa_pk_from_cert(cert_string):
 	public_key = ECC.import_key(cert_string)
 	return public_key
 
+def hkdf_expand_label(csuite, secret, label, context, length):
+	hkdf = HKDF(csuite)
+	hkdf_label_key = tls_hkdf_label(label, context, length)
+	return hkdf.tls_hkdf_expand(secret, hkdf_label_key, length)
+
 class HKDF:
 	def __init__(self, csuite):
 		self.csuite = csuite 
@@ -129,49 +134,153 @@ def tls_hkdf_label(label, context, length: int):
 	return hkdf_label
 
 def tls_derive_key_iv(csuite, secret):
-	hkdf = HKDF(csuite)
 	#[sender]_write_key = HKDF-Expand-Label(Secret, "key", "", key_length)
-	hkdf_label_key = tls_hkdf_label(b"key", b"", KEY_LEN[csuite])
-	key = hkdf.tls_hkdf_expand(secret, hkdf_label_key, KEY_LEN[csuite])
-	#hkdf = HKDF(csuite)
+	key = hkdf_expand_label(csuite, secret, b"key", b"", KEY_LEN[csuite])
 	#[sender]_write_iv = HKDF-Expand-Label(Secret, "iv", "", iv_length)
-	hkdf_label_iv = tls_hkdf_label(b"iv", b"", KEY_LEN[csuite])
-	iv = hkdf.tls_hkdf_expand(secret, hkdf_label_iv, KEY_LEN[csuite])
+	iv = hkdf_expand_label(csuite, secret, b"iv", b"", IV_LEN[csuite])
 	return key, iv # bytes
 
 def tls_extract_secret(csuite, keying_material, salt):
-	if csuite == TLS_AES_128_GCM_SHA256 or csuite == TLS_CHACHA20_POLY1305_SHA256:
-		pass
-	if csuite == TLS_AES_256_GCM_SHA384:
-		pass
-	raise NotImplementedError()
+	# keying material – a series of secret (potentially non-uniform) bytes --> still passes tests
+	hkdf = HKDF(csuite)
+	secret = hkdf.tls_hkdf_extract(keying_material, salt)
+	return secret
 
 def tls_derive_secret(csuite, secret, label, messages):
-	raise NotImplementedError()
+	transcript_hash = tls_transcript_hash(csuite, messages)
+	secret = hkdf_expand_label(csuite, secret, label, transcript_hash, len(transcript_hash))
+	return secret
 
 def tls_finished_key_derive(csuite, secret):
-	raise NotImplementedError()
+	#finished_key = HKDF-Expand-Label(BaseKey, "finished", "", Hash.length)
+	if csuite == TLS_AES_128_GCM_SHA256 or csuite == TLS_CHACHA20_POLY1305_SHA256:
+		hashlen = SHA_256_LEN
+	if csuite == TLS_AES_256_GCM_SHA384:
+		hashlen = SHA_384_LEN 
+	finished_key = hkdf_expand_label(csuite, secret, b"finished", b"", hashlen) # len secet = Hash.len??
+	return finished_key
 
 def tls_finished_mac(csuite, key, context):
-	raise NotImplementedError()
+	if csuite == TLS_AES_128_GCM_SHA256 or csuite == TLS_CHACHA20_POLY1305_SHA256:
+		h = HMAC.new(key, digestmod=SHA256)
+	if csuite == TLS_AES_256_GCM_SHA384:
+		h = HMAC.new(key, digestmod=SHA384)
+	h.update(context)
+	verify_data = h.digest() # Size looks correct and also digest (instead of hexdigest)
+	return verify_data
 
 def tls_finished_mac_verify(csuite, key, context, tag):
-	raise NotImplementedError()
+	# throws a value error??
+	if csuite == TLS_AES_128_GCM_SHA256 or csuite == TLS_CHACHA20_POLY1305_SHA256:
+		h = HMAC.new(key, digestmod=SHA256)
+	if csuite == TLS_AES_256_GCM_SHA384:
+		h = HMAC.new(key, digestmod=SHA384)
+	h.update(context)
+	h.verify(tag)
 
 def tls_nonce(csuite, sqn_no, iv):
-	raise NotImplementedError()
+	# The per-record nonce for the AEAD construction is formed as follows:
+	# 1. The 64-bit record sequence number is encoded in network byte order and padded to the
+	# left with zeros to iv_length.
+	sqn_no_bytes = sqn_no.to_bytes(8, byteorder='big')
+	padding = IV_LEN[csuite]-len(sqn_no_bytes)
+	assert padding >= 0
+	sqn_no_bytes = b'\x00'*padding + sqn_no_bytes
+	# 2. The padded sequence number is XORed with either the static client_write_iv
+	assert len(sqn_no_bytes) == len(iv)
+	xord_sqn_no = xor_bytes(sqn_no_bytes, iv)
+	# The resulting quantity (of length iv_length) is used as the per-record nonce
+	return xord_sqn_no
 
 def tls_aead_encrypt(csuite, key, nonce, plaintext):
-	raise NotImplementedError()
+	if len(plaintext) > 2**14 + 256:
+		# TODO check if this is the actual max allowed size
+		#  the full encoded TLSInnerPlaintext MUST NOT exceed 2^14 + 1 octets
+		raise WrongLengthError(f"In tls_aead_encrypt the plaintext (size: {len(plaintext)}) is bigger than 2**14 + 256.")
+
+	# The length of the AEAD output will generally be larger than the plaintext, but by an amount that varies with the AEAD algorithm
+	if csuite == TLS_CHACHA20_POLY1305_SHA256:
+		ctxt_len = len(plaintext) #  The output is an encrypted message, or "ciphertext", of the same length.
+	if csuite == TLS_AES_256_GCM_SHA384:
+		ctxt_len = len(plaintext) # for AES the case, https://crypto.stackexchange.com/questions/26783/ciphertext-and-tag-size-and-iv-transmission-with-aes-in-gcm-mode
+	if csuite == TLS_AES_128_GCM_SHA256:
+		ctxt_len = len(plaintext) # TODO ask lucas if he also got to this result
+	#additional_data = TLSCiphertext.opaque_type || TLSCiphertext.legacy_record_version || TLSCiphertext.length
+	ad = APPLICATION_TYPE.to_bytes(1, byteorder='big') \
+		+ LEGACY_VERSION.to_bytes(2, byteorder='big') \
+		+ (ctxt_len+16).to_bytes(2, byteorder='big')
+
+	# Use AEAD for enc:
+	if csuite == TLS_CHACHA20_POLY1305_SHA256:
+		# >>> header = b"header"
+		# >>> plaintext = b'Attack at dawn'
+		# >>> key = get_random_bytes(32)
+		cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+	if csuite == TLS_AES_256_GCM_SHA384 or csuite == TLS_AES_128_GCM_SHA256:
+		# >>> header = b"header"
+		# >>> data = b"secret"
+		# >>> key = get_random_bytes(16)
+		cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=MAC_LEN[csuite])
+
+	cipher.update(ad)
+	encrypted_record, tag = cipher.encrypt_and_digest(plaintext)
+	ciphertext = encrypted_record + tag 
+	return ciphertext
 
 def tls_aead_decrypt(csuite, key, nonce, ciphertext):
-	raise NotImplementedError()
+	#additional_data = TLSCiphertext.opaque_type || TLSCiphertext.legacy_record_version || TLSCiphertext.length
+	ad = APPLICATION_TYPE.to_bytes(1, byteorder='big') \
+		+ LEGACY_VERSION.to_bytes(2, byteorder='big') \
+		+ len(ciphertext).to_bytes(2, byteorder='big')
+	if csuite == TLS_CHACHA20_POLY1305_SHA256:
+		cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
+	if csuite == TLS_AES_256_GCM_SHA384 or csuite == TLS_AES_128_GCM_SHA256:
+		cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=MAC_LEN[csuite])
+	cipher.update(ad)
+	ctxt = ciphertext[:-16]
+	mac_tag = ciphertext[-16:]
+	plaintext = cipher.decrypt_and_verify(ctxt, mac_tag)
+	return plaintext
 
 def tls_signature_context(context_flag, content):
-	raise NotImplementedError()
-
+	if context_flag == SERVER_FLAG:
+		context_bytes = b"TLS 1.3, server CertificateVerify"
+	if context_flag == CLIENT_FLAG:
+		context_bytes = b"TLS 1.3, client CertificateVerify"
+	
+	message = b'\x20'*64 + context_bytes + b'\x00' + content
+	return message
+	
 def tls_signature(signature_algorithm, msg, context_flag):
-	raise NotImplementedError()
+	message = tls_signature_context(context_flag, msg)
+	
+	#h = SHA256.new(message)
+	if signature_algorithm == RSA_PKCS1_SHA256:
+		key = RSA2048_KEY
+		sha = SHA256.new(message)
+		signature = pkcs1_15.new(key).sign(sha)
+	if signature_algorithm == RSA_PKCS1_SHA384:
+		key = RSA2048_KEY
+		sha = SHA384.new(message)
+		signature = pkcs1_15.new(key).sign(sha)
+	if signature_algorithm == ECDSA_SECP384R1_SHA384:
+		key = SECP384R1_KEY
+		sha = SHA384.new(message)
+		signature = DSS.new(key, 'fips-186-3').sign(sha)
+	# TODO why does this function need my tls_verify_signature?? I don't know if fips-186-3 i correct.
+	return signature
 
 def tls_verify_signature(signature_algorithm, message, context_flag, signature, public_key):
-	raise NotImplementedError()
+	message = tls_signature_context(context_flag, message)
+	
+	#h = SHA256.new(message)
+	if signature_algorithm == RSA_PKCS1_SHA256:
+		sha = SHA256.new(message)
+		signature = pkcs1_15.new(public_key).verify(sha, signature)
+	if signature_algorithm == RSA_PKCS1_SHA384:
+		sha = SHA384.new(message)
+		signature = pkcs1_15.new(public_key).verify(sha, signature)
+	if signature_algorithm == ECDSA_SECP384R1_SHA384:
+		sha = SHA384.new(message)
+		signature = DSS.new(public_key, 'fips-186-3').verify(sha, signature)
+	

@@ -27,6 +27,7 @@ class NoCommonSignatureError(TLSError):
 class StateConfusionError(TLSError):
     pass
 
+# used?
 class WrongLengthError(TLSError):
     pass
 
