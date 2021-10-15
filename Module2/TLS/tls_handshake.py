@@ -213,6 +213,7 @@ class Handshake:
         return shelo_msg
 
     def tls_13_process_server_hello(self, shelo_msg: bytes):
+        # for parsing this see thread: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87748
         raise NotImplementedError()
 
     def tls_13_server_enc_ext(self):

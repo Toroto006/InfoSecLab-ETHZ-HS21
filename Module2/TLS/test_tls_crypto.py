@@ -231,13 +231,13 @@ class Tests(unittest.TestCase):
     # Unit testing for tls_finished_mac_vfy
 
     def test_tls_finished_mac_vfy(self):
-        with open('ut_tls_finished_mac_vfy_int_inputs.txt', 'r') as filehandle:
-            with open('ut_tls_finished_mac_vfy_byte_inputs.txt', 'rb') as filehandletwo:
+        with open('ut_tls_finished_mac_vfy_int_inputs.txt', 'r') as vfy_int_fhandle:
+            with open('ut_tls_finished_mac_vfy_byte_inputs.txt', 'rb') as vfy_byte_fhandle:
                 curr_pos = 0
-                finished_mac_vfy_bytes = filehandletwo.read()
+                finished_mac_vfy_bytes = vfy_byte_fhandle.read()
                 for i in range(FINISHED_VFY_SAMPLES):
-                    line_space = filehandle.readline()
-                    finished_mac_vfy_inp = filehandle.readline().split()
+                    line_space = vfy_int_fhandle.readline()
+                    finished_mac_vfy_inp = vfy_int_fhandle.readline().split()
                     csuite = int(finished_mac_vfy_inp[0])
                     key_len = int(finished_mac_vfy_inp[1])
                     ctx_len = int(finished_mac_vfy_inp[2])
@@ -405,7 +405,6 @@ class Tests(unittest.TestCase):
                         sig_alg, msg_bytes, context_flag, signature, server_public_key)
 
     # Unit testing for tls_verify_signature
-
     def test_tls_verify_signature(self):
         with open('ut_tls_signature_vfy_int_inputs.txt', 'r') as filehandle:
             with open('ut_tls_signature_vfy_byte_inputs.txt', 'rb') as filehandletwo:
@@ -435,3 +434,60 @@ class Tests(unittest.TestCase):
                         server_public_key = get_ecdsa_pk_from_cert(server_cert)
                     result = tls_verify_signature(
                         sig_alg, msg_bytes, context_flag, sig_bytes, server_public_key)
+    # Test false positives!!
+    def test_tls_verify_signature_false_positive(self):
+        with open('ut_tls_signature_vfy_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_signature_vfy_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                sig_vfy_bytes = filehandletwo.read()
+                for i in range(SIG_VFY_SAMPLES):
+                    line_space = filehandle.readline()
+                    sig_vfy_inp = filehandle.readline().split()
+                    sig_alg = int(sig_vfy_inp[0])
+                    msg_len = int(sig_vfy_inp[1])
+                    context_flag = sig_vfy_inp[2]
+                    sig_len = int(sig_vfy_inp[3])
+                    tmp_pos = curr_pos + msg_len
+                    msg_bytes = sig_vfy_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + sig_len
+                    sig_bytes = sig_vfy_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    if (sig_alg == tls_constants.RSA_PKCS1_SHA256):
+                        server_cert = tls_constants.RSA2048_SHA256_CERT
+                        server_public_key = get_rsa_pk_from_cert(server_cert)
+                    if (sig_alg == tls_constants.RSA_PKCS1_SHA384):
+                        server_cert = tls_constants.RSA2048_SHA384_CERT
+                        server_public_key = get_rsa_pk_from_cert(server_cert)
+                    if (sig_alg == tls_constants.ECDSA_SECP384R1_SHA384):
+                        server_cert = tls_constants.SECP384R1_SHA384_CERT
+                        server_public_key = get_ecdsa_pk_from_cert(server_cert)
+                    #result = tls_verify_signature(
+                    #    sig_alg, msg_bytes, context_flag, sig_bytes, server_public_key)
+                    self.assertRaises(ValueError, tls_verify_signature, sig_alg, msg_bytes, context_flag, b'\x00'*len(sig_bytes), server_public_key)
+
+    # Test false positives!!
+    def test_tls_finished_mac_vfy_false_positive(self):
+        with open('ut_tls_finished_mac_vfy_int_inputs.txt', 'r') as vfy_int_fhandle:
+            with open('ut_tls_finished_mac_vfy_byte_inputs.txt', 'rb') as vfy_byte_fhandle:
+                curr_pos = 0
+                finished_mac_vfy_bytes = vfy_byte_fhandle.read()
+                for i in range(FINISHED_VFY_SAMPLES):
+                    line_space = vfy_int_fhandle.readline()
+                    finished_mac_vfy_inp = vfy_int_fhandle.readline().split()
+                    csuite = int(finished_mac_vfy_inp[0])
+                    key_len = int(finished_mac_vfy_inp[1])
+                    ctx_len = int(finished_mac_vfy_inp[2])
+                    tag_len = int(finished_mac_vfy_inp[2])
+                    tmp_pos = curr_pos + key_len
+                    key_bytes = finished_mac_vfy_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + ctx_len
+                    context_bytes = finished_mac_vfy_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + tag_len
+                    tag_bytes = finished_mac_vfy_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    #tag = tls_finished_mac_verify(
+                    #    csuite, key_bytes, context_bytes, b'\x00'*len(tag_bytes))
+                    self.assertRaises(ValueError, tls_finished_mac_verify, csuite, key_bytes, context_bytes, b'\x00'*len(tag_bytes))

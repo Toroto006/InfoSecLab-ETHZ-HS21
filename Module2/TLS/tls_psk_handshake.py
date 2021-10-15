@@ -62,6 +62,7 @@ class PSKHandshake(Handshake):
         raise NotImplementedError()
 
     def tls_13_client_add_psk_extension(self, chelo: bytes, extensions: bytes) -> Tuple[bytes, List[Dict[str, Union[bytes, int]]]]:
+        # does not include length: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87711
         raise NotImplementedError()
 
     def tls_13_server_parse_psk_extension(self, psk_extension: bytes) -> Tuple[bytes, int]:

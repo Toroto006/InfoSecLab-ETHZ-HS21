@@ -124,8 +124,10 @@ def tls_hkdf_label(label, context, length: int):
 	#x_int = int.from_bytes(x_bytes, byteorder='big', signed=False)
 	#x_bytes = x_int.to_bytes(EC_COORDINATE_LEN, byteorder='big')
 	len_bytes = length.to_bytes(2, byteorder='big')
-	assert len(label) <= 255-7
+	# TODO check for non empty label
 	label_bytes = b"tls13 "+label
+	if not (7 <= len(label_bytes) <= 255):
+		raise WrongLengthError(f"The label for tls_hkdf_label is of the wrong size: {len(label)}")
 	label_size = (len(label_bytes)).to_bytes(1, byteorder='big')
 	assert len(context) <= 255
 	context_size = (len(context)).to_bytes(1, byteorder='big')

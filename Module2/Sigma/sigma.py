@@ -333,7 +333,7 @@ class SIGMA():
 
 		return msg_two
 
-	def client_ecdsa_resp(self, server_msg: bytes) -> bytes:
+	def client_ecdsa_resp(self, server_msg: bytes):
 		if (self.id_hide_flag == True):
 			# PARSE THE CLIENT MESSAGE TO THE FOLLOWING VALUES: server_nonce, server_x_bytes, 
 			# 		server_y_bytes, server_eph_pub_key, server_ctxt
@@ -413,7 +413,7 @@ class SIGMA():
 
 		return msg_three, client_key, server_key
 
-	def server_ecdsa_fin(self, client_msg: bytes) -> bytes:
+	def server_ecdsa_fin(self, client_msg: bytes):
 		if (self.id_hide_flag == True):
 			# DECRYPT MESSAGE VIA aes_gcm_dec(..., ..., "Finished".encode())
 			ptxt = aes_gcm_dec(self.enc_key, client_msg, "Finished".encode())
