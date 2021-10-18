@@ -265,7 +265,8 @@ if __name__ == '__main__':
 
     test_fcts = [
         #(test.test_chelo_msg, "test_chelo_msg"),
-        (test.test_process_server_hello, "test_process_server_hello"),
+        #(test.test_process_server_hello, "test_process_server_hello"),
+        (test.test_process_server_cert_verify, "test_process_server_cert_verify"),
     ]
 
     for fct, name in test_fcts:

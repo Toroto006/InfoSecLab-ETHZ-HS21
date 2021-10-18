@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 from Cryptodome.Random import get_random_bytes
 import tls_crypto
 import tls_constants
-from tls_error import (NoCommonGroupError, StateConfusionError, InvalidMessageStructureError, VerificationFailure, WrongLengthError,
+from tls_error import (NoCommonCiphersuiteError, NoCommonGroupError, StateConfusionError, InvalidMessageStructureError, VerificationFailure, WrongLengthError,
                        WrongRoleError)
 import tls_extensions
 
@@ -276,6 +276,7 @@ class Handshake:
         session_id = shelo[curr_pos:curr_pos+sess_id_len] # TODO no check for session_id?
         curr_pos = curr_pos+sess_id_len
         # CSuite
+        # TODO check that it is one of mine!
         self.csuite = int.from_bytes(shelo[curr_pos:curr_pos+tls_constants.CSUITE_LEN], 'big')
         curr_pos = curr_pos + tls_constants.CSUITE_LEN
         # print('0x%02x'%self.csuite) # returns nice 0x1301 --> TLS_AES_128_GCM_SHA256
@@ -439,10 +440,8 @@ class Handshake:
         self.transcript = self.transcript + cert_msg
 
     def tls_13_server_cert_verify(self) -> bytes:
-        transcript_hash = tls_crypto.tls_transcript_hash(
-            self.csuite, self.transcript)
-        signature = tls_crypto.tls_signature(
-            self.signature, transcript_hash, tls_constants.SERVER_FLAG)
+        transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        signature = tls_crypto.tls_signature(self.signature, transcript_hash, tls_constants.SERVER_FLAG)
         len_sig_bytes = len(signature).to_bytes(2, 'big')
         sig_type_bytes = self.signature.to_bytes(2, 'big')
         msg = sig_type_bytes + len_sig_bytes + signature
@@ -452,8 +451,33 @@ class Handshake:
         return cert_verify_msg
 
     def tls_13_process_server_cert_verify(self, verify_msg: bytes):
+        verify = self.process_handshake_header(tls_constants.CVFY_TYPE, verify_msg)
+        curr_pos = 0
+        # SignatureScheme alg
+        signature_scheme_alg = int.from_bytes(verify[curr_pos:curr_pos+2], 'big')
+        curr_pos += 2
+        # signature
+        signature_len = int.from_bytes(verify[curr_pos:curr_pos+2], 'big')
+        curr_pos += 2
+        signature_bytes = verify[curr_pos:curr_pos+signature_len]
+        curr_pos += signature_len
+        if len(verify) != curr_pos:
+            raise InvalidMessageStructureError()
         
-        raise NotImplementedError()
+        # Get the server pbublic key
+        server_pub_key = None
+        if signature_scheme_alg == tls_constants.RSA_PKCS1_SHA256 or signature_scheme_alg == tls_constants.RSA_PKCS1_SHA384:
+            server_pub_key = tls_crypto.get_rsa_pk_from_cert(self.server_cert_string)
+        if signature_scheme_alg == tls_constants.ECDSA_SECP384R1_SHA384:
+            server_pub_key = tls_crypto.get_ecdsa_pk_from_cert(self.server_cert_string)
+        if server_pub_key is None:
+            raise NoCommonCiphersuiteError()
+
+        # Do the signature verify
+        transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        # Following should throw an error by itself
+        tls_crypto.tls_verify_signature(signature_scheme_alg, transcript_hash, tls_constants.SERVER_FLAG, signature_bytes, server_pub_key)
+        self.transcript += verify_msg
 
     def tls_13_finished(self) -> bytes:
         transcript_hash = tls_crypto.tls_transcript_hash(
