@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 from Cryptodome.Random import get_random_bytes
 import tls_crypto
 import tls_constants
-from tls_error import (NoCommonCiphersuiteError, NoCommonGroupError, StateConfusionError, InvalidMessageStructureError, VerificationFailure, WrongLengthError,
+from tls_error import (NoCommonCiphersuiteError, NoCommonGroupError, NoCommonSignatureError, NoCommonVersionError, StateConfusionError, InvalidMessageStructureError, VerificationFailure, WrongLengthError,
                        WrongRoleError)
 import tls_extensions
 
@@ -265,7 +265,8 @@ class Handshake:
         # ProtocolVersion
         legacy_vers = shelo[curr_pos:curr_pos + tls_constants.PROTOCOL_VERSION_LEN]
         curr_pos = curr_pos + tls_constants.PROTOCOL_VERSION_LEN
-        assert int.from_bytes(legacy_vers, 'big') == 0x0303 or int.from_bytes(legacy_vers, 'big') == 0x0301 # looks good
+        if int.from_bytes(legacy_vers, 'big') != 0x0303 and int.from_bytes(legacy_vers, 'big') != 0x0301: # looks good
+            raise NoCommonVersionError()
         # Random
         curr_pos = curr_pos + tls_constants.RANDOM_LEN
         # legacy_session_id_echo
@@ -471,7 +472,7 @@ class Handshake:
         if signature_scheme_alg == tls_constants.ECDSA_SECP384R1_SHA384:
             server_pub_key = tls_crypto.get_ecdsa_pk_from_cert(self.server_cert_string)
         if server_pub_key is None:
-            raise NoCommonCiphersuiteError()
+            raise NoCommonSignatureError()
 
         # Do the signature verify
         transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
@@ -498,5 +499,24 @@ class Handshake:
         return fin_msg
 
     def tls_13_process_finished(self, fin_msg: bytes):
-        raise NotImplementedError()
+        finished = self.process_handshake_header(tls_constants.FINI_TYPE, fin_msg)
+        if self.csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            mac_len = tls_constants.SHA_256_LEN
+        if self.csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            mac_len = tls_constants.SHA_384_LEN
+        if self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
+            mac_len = tls_constants.SHA_256_LEN
+        if len(finished) != mac_len:
+            raise WrongLengthError()
+        finished_key = tls_crypto.hkdf_expand_label(self.csuite, self.server_hs_traffic_secret, b"finished", b"", mac_len)
+        #tls_crypto.tls_finished_key_derive(self.csuite, ) # the server hs might be wrong
+        transcript = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        tls_crypto.tls_finished_mac_verify(self.csuite, finished_key, transcript, finished)
+        self.transcript += fin_msg
+        if self.role == tls_constants.CLIENT_FLAG:
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+            self.server_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "s ap traffic".encode(), transcript_hash)
+            self.client_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "c ap traffic".encode(), transcript_hash)
         
