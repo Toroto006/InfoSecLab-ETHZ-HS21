@@ -56,6 +56,7 @@ class PSKHandshake(Handshake):
         raise NotImplementedError()
 
     def tls_13_client_parse_new_session_ticket(self, nst_msg: bytes) -> Dict[str, Union[bytes, int]]:
+        # https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87942 for issues with the binder key creation
         raise NotImplementedError()
 
     def tls_13_client_prep_psk_mode_extension(self) -> bytes:
