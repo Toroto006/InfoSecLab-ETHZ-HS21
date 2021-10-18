@@ -44,12 +44,30 @@ class Tests(unittest.TestCase):
                     transcript_hash = tls_transcript_hash(csuite, context)
                     transcript_mult_out.append(transcript_hash.hex())
 
+    # Unit testing comparision for tls_transcript_hash full Lucas
+    def test_tls_transcript_hash_full(self):
+        transcript_mult_out = []
+        with open('ut_tls_transcript_hash_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_transcript_hash_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                context_bytes = filehandletwo.read()
+                for i in range(324):
+                    line_space = filehandle.readline()
+                    transcript_inp = filehandle.readline().split()
+                    csuite = int(transcript_inp[0])
+                    len_context = int(transcript_inp[1])
+                    tmp_pos = curr_pos + len_context
+                    context = context_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    transcript_hash = tls_transcript_hash(csuite, context)
+                    transcript_mult_out.append(transcript_hash.hex())
+
         with open('ut_tls_transcript_hash_outputs_temp.txt', 'w', newline='\n') as filehandle:
             for (transcript_hash) in transcript_mult_out:
                 filehandle.write('\n%s\n' % (transcript_hash))
 
         self.assertTrue(filecmp.cmp(
-            'ut_tls_transcript_hash_outputs_temp.txt', 'ut_tls_transcript_hash_outputs.txt'))
+            'ut_tls_transcript_hash_outputs_temp.txt', 'ut_tls_transcript_hash_outputs_LUCAS.txt'))
 
     # Unit testing for tls_hkdf_lbl
     def test_tls_hkdf_lbl(self):
@@ -74,12 +92,35 @@ class Tests(unittest.TestCase):
                         label_bytes, context_bytes, length)
                     hkdf_lbl_mult_out.append(hkdf_lbl.hex())
 
+    # Unit testinging full for tls_hkdf_lbl
+    def test_tls_hkdf_lbl_full(self):
+        hkdf_lbl_mult_out = []
+        with open('ut_tls_hkdf_lbl_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_hkdf_lbl_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                hkdf_lbl_bytes = filehandletwo.read()
+                for i in range(14670):
+                    line_space = filehandle.readline()
+                    hkdf_len_inp = filehandle.readline().split()
+                    length = int(hkdf_len_inp[0])
+                    lbl_len = int(hkdf_len_inp[1])
+                    ctx_len = int(hkdf_len_inp[2])
+                    tmp_pos = curr_pos + lbl_len
+                    label_bytes = hkdf_lbl_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + ctx_len
+                    context_bytes = hkdf_lbl_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    hkdf_lbl = tls_hkdf_label(
+                        label_bytes, context_bytes, length)
+                    hkdf_lbl_mult_out.append(hkdf_lbl.hex())
+
         with open('ut_tls_hkdf_lbl_outputs_temp.txt', 'w', newline='\n') as filehandle:
             for (hkdf_lbl) in hkdf_lbl_mult_out:
                 filehandle.write('\n%s\n' % (hkdf_lbl))
 
         self.assertTrue(filecmp.cmp(
-            'ut_tls_hkdf_lbl_outputs_temp.txt', 'ut_tls_hkdf_lbl_outputs.txt'))
+            'ut_tls_hkdf_lbl_outputs_temp.txt', 'ut_tls_hkdf_lbl_outputs_LUCAS.txt'))
 
     # Unit testing for tls_derive_key_iv
     def test_tls_derive_key_iv(self):
@@ -133,12 +174,39 @@ class Tests(unittest.TestCase):
                         csuite, key_mat_bytes, salt_bytes)
                     extract_secret_mult_out.append(secret.hex())
 
+    # Unit testinging full for tls_extract_secret
+    def test_tls_extract_secret_full(self):
+        extract_secret_mult_out = []
+        with open('ut_tls_extract_secret_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_extract_secret_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                extract_secret_bytes = filehandletwo.read()
+                for i in range(135):
+                    line_space = filehandle.readline()
+                    extract_secret_inp = filehandle.readline().split()
+                    csuite = int(extract_secret_inp[0])
+                    mat_len = int(extract_secret_inp[1])
+                    slt_len = int(extract_secret_inp[2])
+                    tmp_pos = curr_pos + mat_len
+                    key_mat_bytes = extract_secret_bytes[curr_pos:tmp_pos]
+                    if (mat_len == 0):
+                        key_mat_bytes = None
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + slt_len
+                    salt_bytes = extract_secret_bytes[curr_pos:tmp_pos]
+                    if (slt_len == 0):
+                        salt_bytes = None
+                    curr_pos = tmp_pos
+                    secret = tls_extract_secret(
+                        csuite, key_mat_bytes, salt_bytes)
+                    extract_secret_mult_out.append(secret.hex())
+
         with open('ut_tls_extract_secret_outputs_temp.txt', 'w', newline='\n') as filehandle:
             for (secret) in extract_secret_mult_out:
                 filehandle.write('\n%s\n' % (secret))
 
         self.assertTrue(filecmp.cmp(
-            'ut_tls_extract_secret_outputs_temp.txt', 'ut_tls_extract_secret_outputs.txt'))
+            'ut_tls_extract_secret_outputs_temp.txt', 'ut_tls_extract_secret_outputs_LUCAS.txt'))
 
     # Unit testing for tls_derive_secret
     def test_tls_derive_secret(self):
@@ -173,6 +241,40 @@ class Tests(unittest.TestCase):
 
         self.assertTrue(filecmp.cmp(
             'ut_tls_derive_secret_outputs_temp.txt', 'ut_tls_derive_secret_outputs.txt'))
+
+    # Unit testing full for tls_derive_secret
+    def test_tls_derive_secret_full(self):
+        derive_secret_mult_out = []
+        with open('ut_tls_derive_secret_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_derive_secret_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                derive_secret_bytes = filehandletwo.read()
+                for i in range(170):
+                    line_space = filehandle.readline()
+                    derive_secret_inp = filehandle.readline().split()
+                    csuite = int(derive_secret_inp[0])
+                    sec_len = int(derive_secret_inp[1])
+                    lbl_len = int(derive_secret_inp[2])
+                    msg_len = int(derive_secret_inp[3])
+                    tmp_pos = curr_pos + sec_len
+                    secret_bytes = derive_secret_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + lbl_len
+                    label_bytes = derive_secret_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + msg_len
+                    msg_bytes = derive_secret_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    out_secret = tls_derive_secret(
+                        csuite, secret_bytes, label_bytes, msg_bytes)
+                    derive_secret_mult_out.append(out_secret.hex())
+
+        with open('ut_tls_derive_secret_outputs_temp.txt', 'w', newline='\n') as filehandle:
+            for (out_secret) in derive_secret_mult_out:
+                filehandle.write('\n%s\n' % (out_secret))
+
+        self.assertTrue(filecmp.cmp(
+            'ut_tls_derive_secret_outputs_temp.txt', 'ut_tls_derive_secret_outputs_LUCAS.txt'))
 
     # Unit testing for tls_finished_key
     def test_tls_finished_key(self):
@@ -227,6 +329,35 @@ class Tests(unittest.TestCase):
 
         self.assertTrue(filecmp.cmp(
             'ut_tls_finished_mac_outputs_temp.txt', 'ut_tls_finished_mac_outputs.txt'))
+
+    # Unit testing full for tls_finished_mac
+    def test_tls_finished_mac_full(self):
+        finished_mac_mult_out = []
+        with open('ut_tls_finished_mac_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_finished_mac_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                finished_mac_bytes = filehandletwo.read()
+                for i in range(181):
+                    line_space = filehandle.readline()
+                    finished_mac_inp = filehandle.readline().split()
+                    csuite = int(finished_mac_inp[0])
+                    key_len = int(finished_mac_inp[1])
+                    ctx_len = int(finished_mac_inp[2])
+                    tmp_pos = curr_pos + key_len
+                    key_bytes = finished_mac_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tmp_pos = curr_pos + ctx_len
+                    context_bytes = finished_mac_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    tag = tls_finished_mac(csuite, key_bytes, context_bytes)
+                    finished_mac_mult_out.append(tag.hex())
+
+        with open('ut_tls_finished_mac_outputs_temp.txt', 'w', newline='\n') as filehandle:
+            for (tag) in finished_mac_mult_out:
+                filehandle.write('\n%s\n' % (tag))
+
+        self.assertTrue(filecmp.cmp(
+            'ut_tls_finished_mac_outputs_temp.txt', 'ut_tls_finished_mac_outputs_LUCAS.txt'))
 
     # Unit testing for tls_finished_mac_vfy
 
@@ -348,8 +479,33 @@ class Tests(unittest.TestCase):
         self.assertTrue(filecmp.cmp(
             'ut_tls_nonce_outputs_temp.txt', 'ut_tls_nonce_outputs.txt'))
 
-    # Unit testing for tls_sig_context
+    # Unit testing full for tls_nonce
+    def test_tls_nonce_full(self):
+        tls_nonce_mult_out = []
+        with open('ut_tls_nonce_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_nonce_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                nonce_bytes = filehandletwo.read()
+                for i in range(112):
+                    line_space = filehandle.readline()
+                    tls_nonce_inp = filehandle.readline().split()
+                    csuite = int(tls_nonce_inp[0])
+                    sqn_no = int(tls_nonce_inp[1])
+                    iv_len = int(tls_nonce_inp[2])
+                    tmp_pos = curr_pos + iv_len
+                    iv_bytes = nonce_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    nonce = tls_nonce(csuite, sqn_no, iv_bytes)
+                    tls_nonce_mult_out.append(nonce.hex())
 
+        with open('ut_tls_nonce_outputs_temp.txt', 'w', newline='\n') as filehandle:
+            for (nonce) in tls_nonce_mult_out:
+                filehandle.write('\n%s\n' % (nonce))
+
+        self.assertTrue(filecmp.cmp(
+            'ut_tls_nonce_outputs_temp.txt', 'ut_tls_nonce_outputs_LUCAS.txt'))
+
+    # Unit testing for tls_sig_context
     def test_tls_sig_context(self):
         sig_context_mult_out = []
         with open('ut_tls_sig_context_int_inputs.txt', 'r') as filehandle:
@@ -374,6 +530,31 @@ class Tests(unittest.TestCase):
         self.assertTrue(filecmp.cmp(
             'ut_tls_sig_context_outputs_temp.txt', 'ut_tls_sig_context_outputs.txt'))
 
+    # Unit testing full for tls_sig_context
+    def test_tls_sig_context_full(self):
+        sig_context_mult_out = []
+        with open('ut_tls_sig_context_int_inputs.txt', 'r') as filehandle:
+            with open('ut_tls_sig_context_byte_inputs.txt', 'rb') as filehandletwo:
+                curr_pos = 0
+                sig_context_bytes = filehandletwo.read()
+                for i in range(275):
+                    line_space = filehandle.readline()
+                    sig_context_inp = filehandle.readline().split()
+                    context_flag = sig_context_inp[0]
+                    ctx_len = int(sig_context_inp[1])
+                    tmp_pos = curr_pos + ctx_len
+                    ctx_bytes = sig_context_bytes[curr_pos:tmp_pos]
+                    curr_pos = tmp_pos
+                    message = tls_signature_context(context_flag, ctx_bytes)
+                    sig_context_mult_out.append(message.hex())
+
+        with open('ut_tls_sig_context_outputs_temp.txt', 'w', newline='\n') as filehandle:
+            for (message) in sig_context_mult_out:
+                filehandle.write('\n%s\n' % (message))
+
+        self.assertTrue(filecmp.cmp(
+            'ut_tls_sig_context_outputs_temp.txt', 'ut_tls_sig_context_outputs_LUCAS.txt'))
+
     # Unit testing for tls_signature
     def test_tls_signature(self):
         sig_mult_out = []
@@ -381,7 +562,7 @@ class Tests(unittest.TestCase):
             with open('ut_tls_signature_byte_inputs.txt', 'rb') as filehandletwo:
                 curr_pos = 0
                 sig_bytes = filehandletwo.read()
-                for i in range(SIG_SAMPLES):
+                for i in range(373):
                     line_space = filehandle.readline()
                     sig_inp = filehandle.readline().split()
                     sig_alg = int(sig_inp[0])
@@ -434,6 +615,7 @@ class Tests(unittest.TestCase):
                         server_public_key = get_ecdsa_pk_from_cert(server_cert)
                     result = tls_verify_signature(
                         sig_alg, msg_bytes, context_flag, sig_bytes, server_public_key)
+
     # Test false positives!!
     def test_tls_verify_signature_false_positive(self):
         with open('ut_tls_signature_vfy_int_inputs.txt', 'r') as filehandle:
