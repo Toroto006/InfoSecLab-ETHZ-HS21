@@ -310,7 +310,7 @@ class Handshake:
             if (ext_type == tls_constants.SUPPORT_VERS_TYPE):
                 if len(ext_bytes) != 2:
                     raise InvalidMessageStructureError()
-                self.neg_version = int.from_bytes(ext_bytes[1:], 'big')
+                self.neg_version = int.from_bytes(ext_bytes, 'big')
             if (ext_type == tls_constants.SUPPORT_GROUPS_TYPE):
                 if len(ext_bytes) != 2:
                     raise InvalidMessageStructureError()
@@ -382,9 +382,7 @@ class Handshake:
         
         self.master_secret = tls_crypto.tls_extract_secret(
             self.csuite, None, derived_hs_secret)
-        # TODO How do you do server finished already??
-
-
+        
     def tls_13_server_enc_ext(self):
         msg = 0x0000.to_bytes(2, 'big')
         enc_ext_msg = self.attach_handshake_header(
