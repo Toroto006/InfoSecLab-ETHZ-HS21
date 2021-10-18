@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 from Cryptodome.Random import get_random_bytes
 import tls_crypto
 import tls_constants
-from tls_error import (StateConfusionError, InvalidMessageStructureError,
+from tls_error import (StateConfusionError, InvalidMessageStructureError, WrongLengthError,
                        WrongRoleError)
 import tls_extensions
 
@@ -101,8 +101,49 @@ class Handshake:
             raise InvalidMessageStructureError()
         return ptxt_msg
 
+    def encode_list(self, size: int, list: List[int]) -> bytes:
+        res = b''
+        for el in list:
+            res += el.to_bytes(size, byteorder='big')
+        return res
+
     def tls_13_client_hello(self) -> bytes:
-        raise NotImplementedError()
+        # struct {
+        # ProtocolVersion legacy_version = 0x0303; /* TLS v1.2 */
+        protocol_version = 0x0303.to_bytes(2, byteorder='big')
+        # Random random;
+        random = self.get_random_bytes(tls_constants.RANDOM_LEN)
+        # opaque legacy_session_id<0..32>;
+        legacy_session_id = self.get_random_bytes(tls_constants.RANDOM_LEN) # not sure if TRNG is necessary, but why not use it.
+        self.sid = legacy_session_id # to be able to check it later
+        legsess_len = tls_constants.RANDOM_LEN.to_bytes(1, byteorder='big')
+        # CipherSuite cipher_suites<2..2^16-2>;
+        csuite = self.encode_list(2, self.csuites)
+        #assert len(csuite) % 2 == 0 # as ChihperSuite is 2B
+        csuite_len = len(csuite).to_bytes(tls_constants.CSUITE_LEN_LEN, byteorder='big')
+        # opaque legacy_compression_methods<1..2^8-1>;
+        legacy_compression_meth = 0x0.to_bytes(1, byteorder='big')
+        comp_len = len(legacy_compression_meth).to_bytes(tls_constants.COMP_LEN_LEN, byteorder='big')
+        # Extension extensions<8..2^16-1>;
+            # struct {
+            # ExtensionType extension_type;
+            # opaque extension_data<0..2^16-1>;
+            # } Extension;
+        # 1. Supported Version
+        supp_vers_ext = tls_extensions.prep_support_vers_ext(self.extensions)
+        # 2. Supported Group
+        supp_groups_ext = tls_extensions.prep_support_groups_ext(self.extensions)
+        # 3. Keyshare
+        keyshare_ext, self.ec_sec_keys = tls_extensions.prep_keyshare_ext(self.extensions)
+        # 4. Signature Algorithm
+        supp_sigs_ext = tls_extensions.prep_signature_ext(self.extensions)
+        extensions = supp_vers_ext + supp_groups_ext + keyshare_ext + supp_sigs_ext
+        ext_len = len(extensions).to_bytes(tls_constants.EXT_LEN_LEN, byteorder='big')
+        # } ClientHello;
+        client_hello = protocol_version + random + legsess_len + legacy_session_id + csuite_len \
+            + csuite + comp_len + legacy_compression_meth + ext_len + extensions
+        msg = self.attach_handshake_header(tls_constants.CHELO_TYPE, client_hello)
+        return msg
 
     def tls_13_process_client_hello(self, chelo_msg: bytes):
         # DECONSTRUCT OUR CLIENTHELLO MESSAGE
@@ -214,6 +255,55 @@ class Handshake:
 
     def tls_13_process_server_hello(self, shelo_msg: bytes):
         # for parsing this see thread: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87748
+        curr_pos = 0
+        # ProtocolVersion
+        shelo_vers = shelo_msg[curr_pos:curr_pos + tls_constants.PROTOCOL_VERSION_LEN]
+        curr_pos = curr_pos + tls_constants.PROTOCOL_VERSION_LEN
+        # Random
+        curr_pos = curr_pos + tls_constants.RANDOM_LEN
+        # legacy_session_id_echo
+        sess_id_len = shelo_msg[curr_pos]
+        curr_pos = curr_pos + tls_constants.SID_LEN_LEN
+        session_id = shelo_msg[curr_pos:curr_pos+sess_id_len]
+        if self.sid != session_id:
+            raise WrongLengthError(f"In tls_13_process_server_hello the {self.sid} sent was not returned by the Server!")
+        curr_pos = curr_pos+sess_id_len
+        # CSuite
+        remote_csuite = shelo_msg[curr_pos:curr_pos+tls_constants.CSUITE_LEN]
+        curr_pos = curr_pos + tls_constants.CSUITE_LEN
+        # legacy_compression_method
+        comp_method = int.from_bytes(shelo_msg[curr_pos:curr_pos+1], 'big')
+        curr_pos = curr_pos + 1 # server legacy compression is a constant 0
+        assert comp_method == 0x00
+        #
+        exts_len = int.from_bytes(shelo_msg[curr_pos:curr_pos+tls_constants.EXT_LEN_LEN], 'big')
+        curr_pos = curr_pos + tls_constants.EXT_LEN_LEN
+        remote_extensions = shelo_msg[curr_pos:]
+        curr_ext_pos = 0
+        while (curr_ext_pos < len(remote_extensions)):
+            pass
+        #     ext_type = int.from_bytes(
+        #         remote_extensions[curr_ext_pos:curr_ext_pos+2], 'big')
+        #     ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+2]
+        #     curr_ext_pos = curr_ext_pos + 2
+        #     ext_len = int.from_bytes(
+        #         remote_extensions[curr_ext_pos:curr_ext_pos+2], 'big')
+        #     ext_bytes = ext_bytes + \
+        #         remote_extensions[curr_ext_pos:curr_ext_pos+2]
+        #     curr_ext_pos = curr_ext_pos + 2
+        #     ext_bytes = ext_bytes + \
+        #         remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
+        #     if (ext_type == tls_constants.SUPPORT_VERS_TYPE):
+        #         deter_vers = ext_bytes
+        #     if (ext_type == tls_constants.SUPPORT_GROUPS_TYPE):
+        #         deter_group = ext_bytes
+        #     if (ext_type == tls_constants.KEY_SHARE_TYPE):
+        #         deter_keys = ext_bytes
+        #     if (ext_type == tls_constants.SIG_ALGS_TYPE):
+        #         deter_sig = ext_bytes
+        #     curr_ext_pos = curr_ext_pos + ext_len
+        # deter_chelo = curr_msg_type.to_bytes(1, 'big') + chelo_vers + csuites_len.to_bytes(
+        #     2, 'big') + remote_csuites + comp_len.to_bytes(1, 'big') + legacy_comp.to_bytes(1, 'big')
         raise NotImplementedError()
 
     def tls_13_server_enc_ext(self):
