@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 from Cryptodome.Random import get_random_bytes
 import tls_crypto
 import tls_constants
-from tls_error import (StateConfusionError, InvalidMessageStructureError, WrongLengthError,
+from tls_error import (NoCommonGroupError, StateConfusionError, InvalidMessageStructureError, VerificationFailure, WrongLengthError,
                        WrongRoleError)
 import tls_extensions
 
@@ -115,7 +115,7 @@ class Handshake:
         random = self.get_random_bytes(tls_constants.RANDOM_LEN)
         # opaque legacy_session_id<0..32>;
         legacy_session_id = self.get_random_bytes(tls_constants.RANDOM_LEN) # not sure if TRNG is necessary, but why not use it.
-        self.sid = legacy_session_id # to be able to check it later
+        self.client_sid = legacy_session_id # to be able to check it later
         legsess_len = tls_constants.RANDOM_LEN.to_bytes(1, byteorder='big')
         # CipherSuite cipher_suites<2..2^16-2>;
         csuite = self.encode_list(2, self.csuites)
@@ -142,8 +142,10 @@ class Handshake:
         # } ClientHello;
         client_hello = protocol_version + random + legsess_len + legacy_session_id + csuite_len \
             + csuite + comp_len + legacy_compression_meth + ext_len + extensions
-        msg = self.attach_handshake_header(tls_constants.CHELO_TYPE, client_hello)
-        return msg
+        self.chelo = client_hello
+        chelo_msg = self.attach_handshake_header(tls_constants.CHELO_TYPE, client_hello)
+        self.transcript += chelo_msg
+        return chelo_msg
 
     def tls_13_process_client_hello(self, chelo_msg: bytes):
         # DECONSTRUCT OUR CLIENTHELLO MESSAGE
@@ -255,56 +257,133 @@ class Handshake:
 
     def tls_13_process_server_hello(self, shelo_msg: bytes):
         # for parsing this see thread: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87748
+        self.transcript += shelo_msg
+        shelo = self.process_handshake_header(tls_constants.SHELO_TYPE, shelo_msg)
+        # should be: legacy_vers + random + legacy_sess_id_len + legacy_sess_id + \
+        #    csuite_bytes + legacy_compression + exten_len + extensions
         curr_pos = 0
         # ProtocolVersion
-        shelo_vers = shelo_msg[curr_pos:curr_pos + tls_constants.PROTOCOL_VERSION_LEN]
+        legacy_vers = shelo[curr_pos:curr_pos + tls_constants.PROTOCOL_VERSION_LEN]
         curr_pos = curr_pos + tls_constants.PROTOCOL_VERSION_LEN
+        assert int.from_bytes(legacy_vers, 'big') == 0x0303 or int.from_bytes(legacy_vers, 'big') == 0x0301 # looks good
         # Random
         curr_pos = curr_pos + tls_constants.RANDOM_LEN
         # legacy_session_id_echo
-        sess_id_len = shelo_msg[curr_pos]
+        sess_id_len = int.from_bytes(shelo[curr_pos:curr_pos+tls_constants.SID_LEN_LEN], 'big')
         curr_pos = curr_pos + tls_constants.SID_LEN_LEN
-        session_id = shelo_msg[curr_pos:curr_pos+sess_id_len]
-        if self.sid != session_id:
-            raise WrongLengthError(f"In tls_13_process_server_hello the {self.sid} sent was not returned by the Server!")
+        if sess_id_len != 32:
+            raise InvalidMessageStructureError()
+        session_id = shelo[curr_pos:curr_pos+sess_id_len] # TODO no check for session_id?
         curr_pos = curr_pos+sess_id_len
         # CSuite
-        remote_csuite = shelo_msg[curr_pos:curr_pos+tls_constants.CSUITE_LEN]
+        self.csuite = int.from_bytes(shelo[curr_pos:curr_pos+tls_constants.CSUITE_LEN], 'big')
         curr_pos = curr_pos + tls_constants.CSUITE_LEN
+        # print('0x%02x'%self.csuite) # returns nice 0x1301 --> TLS_AES_128_GCM_SHA256
         # legacy_compression_method
-        comp_method = int.from_bytes(shelo_msg[curr_pos:curr_pos+1], 'big')
+        comp_method = int.from_bytes(shelo[curr_pos:curr_pos+1], 'big')
         curr_pos = curr_pos + 1 # server legacy compression is a constant 0
-        assert comp_method == 0x00
-        #
-        exts_len = int.from_bytes(shelo_msg[curr_pos:curr_pos+tls_constants.EXT_LEN_LEN], 'big')
+        if comp_method != 0x00:
+            print(f"In tls_13_process_server_hello the message has non-zero legacy_compression_method!")
+            raise InvalidMessageStructureError()
+        # extensions
+        exts_len = int.from_bytes(shelo[curr_pos:curr_pos+tls_constants.EXT_LEN_LEN], 'big')
         curr_pos = curr_pos + tls_constants.EXT_LEN_LEN
-        remote_extensions = shelo_msg[curr_pos:]
+        remote_extensions = shelo[curr_pos:]
+        if len(remote_extensions) != exts_len:
+            print(f"In tls_13_process_server_hello the message has wrong length for the extensions!")
+            raise InvalidMessageStructureError()
         curr_ext_pos = 0
         while (curr_ext_pos < len(remote_extensions)):
-            pass
-        #     ext_type = int.from_bytes(
-        #         remote_extensions[curr_ext_pos:curr_ext_pos+2], 'big')
-        #     ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+2]
-        #     curr_ext_pos = curr_ext_pos + 2
-        #     ext_len = int.from_bytes(
-        #         remote_extensions[curr_ext_pos:curr_ext_pos+2], 'big')
-        #     ext_bytes = ext_bytes + \
-        #         remote_extensions[curr_ext_pos:curr_ext_pos+2]
-        #     curr_ext_pos = curr_ext_pos + 2
-        #     ext_bytes = ext_bytes + \
-        #         remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
-        #     if (ext_type == tls_constants.SUPPORT_VERS_TYPE):
-        #         deter_vers = ext_bytes
-        #     if (ext_type == tls_constants.SUPPORT_GROUPS_TYPE):
-        #         deter_group = ext_bytes
-        #     if (ext_type == tls_constants.KEY_SHARE_TYPE):
-        #         deter_keys = ext_bytes
-        #     if (ext_type == tls_constants.SIG_ALGS_TYPE):
-        #         deter_sig = ext_bytes
-        #     curr_ext_pos = curr_ext_pos + ext_len
-        # deter_chelo = curr_msg_type.to_bytes(1, 'big') + chelo_vers + csuites_len.to_bytes(
-        #     2, 'big') + remote_csuites + comp_len.to_bytes(1, 'big') + legacy_comp.to_bytes(1, 'big')
-        raise NotImplementedError()
+            # ExtensionType
+            # this time EXT_LEN_LEN is maybe the wrong constant but still two
+            ext_type = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
+            curr_ext_pos += tls_constants.EXT_LEN_LEN
+            #print('ext_type: %02d'%ext_type) # returns 43 on first round --> SUPPORT_VERS_TYPE 
+            # extension_data_len
+            ext_len = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
+            curr_ext_pos += tls_constants.EXT_LEN_LEN
+            #print('ext_len: 0x%02x'%ext_len) # returns 02 --> SUPPORT_VERS_TYPE 
+            # get actual data
+            ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
+            curr_ext_pos += ext_len
+            #print(f'ext_bytes in hex: {ext_bytes.hex()}')
+            if (ext_type == tls_constants.SUPPORT_VERS_TYPE):
+                if len(ext_bytes) != 2:
+                    raise InvalidMessageStructureError()
+                self.neg_version = int.from_bytes(ext_bytes[1:], 'big')
+            if (ext_type == tls_constants.SUPPORT_GROUPS_TYPE):
+                if len(ext_bytes) != 2:
+                    raise InvalidMessageStructureError()
+                self.neg_group = int.from_bytes(ext_bytes[1:], 'big')
+            if (ext_type == tls_constants.SIG_ALGS_TYPE):
+                # Should not be returned at all!
+                raise InvalidMessageStructureError()
+            if (ext_type == tls_constants.KEY_SHARE_TYPE):
+                named_group = int.from_bytes(ext_bytes[0:2], 'big')
+                #print('named_group: 0x%04x'%named_group) # returns 0x0017
+                key_exchange_len = int.from_bytes(ext_bytes[2:4], 'big')
+                key_exchange_field = ext_bytes[4:] # 4 because 2B size
+                if len(key_exchange_field) != key_exchange_len:
+                    raise InvalidMessageStructureError()
+                # SECP256R1_VALUE, SECP384R1_VALUE, SECP521R1_VALUE
+                #  For secp256r1, secp384r1, and secp521r1, the contents are the serialized value of the following struct:
+                #  struct {
+                #  uint8 legacy_form = 4;
+                legacy_form = int.from_bytes(key_exchange_field[0:1], 'big')
+                if legacy_form != 0x04:
+                    raise InvalidMessageStructureError()
+                #  opaque X[coordinate_length];
+                #  opaque Y[coordinate_length];
+                #  } UncompressedPointRepresentation;
+                # Peers MUST validate each other’s public key Y by ensuring that 1 < Y < p-1. --> done by tinyEC
+                self.ec_pub_key = tls_crypto.convert_x_y_bytes_ec_pub(key_exchange_field[1:], named_group)
+        if curr_ext_pos != len(remote_extensions):
+            # as we should have perfectly used up all bytes
+            print(f"In tls_13_process_server_hello the message has wrong format in the extensions!")
+            raise InvalidMessageStructureError()
+        
+        # Compute the Diffie-Hellman secret value
+        if self.neg_group not in self.ec_sec_keys.keys():
+            raise NoCommonGroupError()
+        ec_sec_key = self.ec_sec_keys[self.neg_group]
+        ec_secret_point = tls_crypto.ec_dh(ec_sec_key, self.ec_pub_key)
+        ecdh_secret = tls_crypto.point_to_secret(ec_secret_point, self.neg_group)
+        # Derive the secrets
+        early_secret = tls_crypto.tls_extract_secret(self.csuite, None, None)
+        self.early_secret = early_secret
+        # +-----> Derive-Secret(., "ext binder" | "res binder", "") = binder_key
+        # For the computation of the  binder_key, the label is "ext binder" for external PSKs (those
+        # provisioned outside of TLS) and "res binder" for resumption PSKs
+        # (those provisioned as the resumption master secret of a previous handshake).
+        #binder_key = tls_crypto.tls_derive_secret(
+        #    self.csuite, early_secret, "ext binder".encode(), "".encode())
+        # +-----> Derive-Secret(., "c e traffic", ClientHello) = client_early_traffic_secret
+        #client_early_traffic_secret = tls_crypto.tls_derive_secret(
+        #    self.csuite, early_secret, "c e traffic".encode(), self.chelo)
+        # +-----> Derive-Secret(., "e exp master", ClientHello) = early_exporter_master_secret
+        #early_exporter_master_secret = tls_crypto.tls_derive_secret(
+        #    self.csuite, early_secret, "e exp master".encode(), self.chelo)
+        # Derive-Secret(., "derived", "")
+        derived_early_secret = tls_crypto.tls_derive_secret(
+            self.csuite, early_secret, "derived".encode(), "".encode())
+        
+        # (EC)DHE -> HKDF-Extract = Handshake Secret; completely the same as server
+        #transcript_hash = tls_crypto.tls_transcript_hash(
+        #    self.csuite, self.transcript)
+        handshake_secret = tls_crypto.tls_extract_secret(
+            self.csuite, ecdh_secret, derived_early_secret)
+        self.handshake_secret = handshake_secret
+        self.server_hs_traffic_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "s hs traffic".encode(), self.transcript)
+        self.client_hs_traffic_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "c hs traffic".encode(), self.transcript)
+        derived_hs_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "derived".encode(), "".encode())
+        
+        self.master_secret = tls_crypto.tls_extract_secret(
+            self.csuite, None, derived_hs_secret)
+        # TODO How do you do server finished already??
+
 
     def tls_13_server_enc_ext(self):
         msg = 0x0000.to_bytes(2, 'big')
