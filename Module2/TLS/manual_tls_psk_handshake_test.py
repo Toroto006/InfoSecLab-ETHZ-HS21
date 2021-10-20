@@ -136,7 +136,8 @@ if __name__ == '__main__':
     test = Tests()
 
     test_fcts = [
-        (test.test_tls_13_server_new_session_ticket, "test_tls_13_server_new_session_ticket"),
+        #(test.test_tls_13_server_new_session_ticket, "test_tls_13_server_new_session_ticket"),
+        (test.test_tls_13_client_parse_new_session_ticket, "test_tls_13_client_parse_new_session_ticket"),
     ]
 
     for fct, name in test_fcts:
