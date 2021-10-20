@@ -53,7 +53,43 @@ class PSKHandshake(Handshake):
         self.get_random_bytes = get_random_bytes
 
     def tls_13_server_new_session_ticket(self) -> bytes:
-        raise NotImplementedError()
+        # struct {
+        something = int(0).to_bytes(4, 'big')
+        # uint32 ticket_lifetime;
+        lifetime = int(604800).to_bytes(4, 'big')
+        # uint32 ticket_age_add;
+        age_add = self.get_random_bytes(4)
+        # opaque ticket_nonce<0..255>;
+        nonce = self.get_random_bytes(8)
+        nonce_len = len(nonce).to_bytes(1, 'big')
+        # opaque ticket<1..2^16-1>;
+        # chosen_cipher CHACHA20_POLY1305_SHA256
+        # k = self.server_static_enc_key
+        # N = ticket_nonce
+        # ad = ""
+        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", nonce, tls_constants.SHA_256_LEN)
+        # ptxt = PSK ticket_add_age ticket_lifetime self.csuite
+        plaintext = psk + age_add + lifetime + self.csuite.to_bytes(2, 'big') # csuite conversion correct?
+        cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonce=nonce)
+        # cipher.update(ad) # no update as empty?
+        ctxt, mac_tag = cipher.encrypt_and_digest(plaintext)
+        ticket = nonce + ctxt + mac_tag
+        ticket_len = len(ticket).to_bytes(2, 'big')
+        # Extension extensions<0..2^16-2>;
+            # struct {
+            # select (Handshake.msg_type) {
+            # case new_session_ticket: uint32 max_early_data_size;
+            # case client_hello: Empty;
+            # case encrypted_extensions: Empty;
+            # };} EarlyDataIndication;
+        extensions_data = int(2**12).to_bytes(4, 'big')
+        extension_type = tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big')
+        extensions = extension_type + len(extensions_data).to_bytes(2, 'big') + extensions_data
+        extensions_len = len(extensions).to_bytes(2, 'big')
+        # } NewSessionTicket;
+        new_session_ticket = lifetime + age_add + nonce_len + nonce + ticket_len + ticket + extensions_len + extensions
+        handshake = self.attach_handshake_header(tls_constants.NEWST_TYPE, new_session_ticket)
+        return handshake
 
     def tls_13_client_parse_new_session_ticket(self, nst_msg: bytes) -> Dict[str, Union[bytes, int]]:
         # https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87942 for issues with the binder key creation
