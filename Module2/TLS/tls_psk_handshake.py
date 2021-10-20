@@ -93,6 +93,7 @@ class PSKHandshake(Handshake):
         return handshake
 
     def tls_13_client_parse_new_session_ticket(self, nst_msg: bytes) -> Dict[str, Union[bytes, int]]:
+        print(f"Started tls_13_client_parse_new_session_ticket")
         arrival_time = self.get_time()
         # https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87942 for issues with the binder key creation
         nst = self.process_handshake_header(tls_constants.NEWST_TYPE, nst_msg)
@@ -166,6 +167,7 @@ class PSKHandshake(Handshake):
             "csuite": self.csuite,
             "arrival": arrival_time
         }
+        print(f"tls_13_client_parse_new_session_ticket with {psk_dict}")
         return psk_dict
 
     def tls_13_client_prep_psk_mode_extension(self) -> bytes:

@@ -227,6 +227,13 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                 else:
                     pass
             else:
+                # Custom
+                nst_msg = self.handshake.tls_13_server_new_session_ticket()
+                new_ticket_msg = tls_record_layer.create_TLSPlaintext(
+                    nst_msg, tls_constants.HANDSHAKE_TYPE)
+                print(f"sent with {tls_constants.HANDSHAKE_TYPE}")
+                self._send(new_ticket_msg)
+                # Original
                 ctxt = self.send_enc_message(write)
                 self._send(ctxt)
         else:
@@ -403,9 +410,9 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                 msg_bytes = self._receive()
                 content_type, msg = tls_record_layer.read_TLSPlaintext(
                     msg_bytes)
+                print(f"received with {content_type}")
                 if content_type == tls_constants.APPLICATION_TYPE:
-                    msg_type, ptxt = self.recv_ap_enc_connect.dec_packet(
-                        msg_bytes)
+                    msg_type, ptxt = self.recv_ap_enc_connect.dec_packet(msg_bytes)
                     if msg_type == tls_constants.APPLICATION_TYPE:
                         return msg_type, ptxt
                     elif msg_type == tls_constants.HANDSHAKE_TYPE:
@@ -414,6 +421,11 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                         pass
                     else:
                         pass
+                # Custom elif clause for PSK
+                elif content_type == tls_constants.HANDSHAKE_TYPE:
+                    psk_dict = self.handshake.tls_13_client_parse_new_session_ticket(msg)
+                    self.psks.append(psk_dict)
+                    return self.transition(write)
                 else:
                     pass
             else:

@@ -22,6 +22,7 @@ def client_socket():
     print(msg.decode('utf-8'))
     psks = client.get_psks()
     s.close()
+    print(psks)
     s = socket.socket()
     s.connect((host, port))
     client = TLSConnection(s)
