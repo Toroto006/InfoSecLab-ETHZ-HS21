@@ -48,14 +48,13 @@ class PSKHandshake(Handshake):
         self.resumption_master_secret = None
         self.max_early_data = None
         self.offered_psks = None
-        self.use_keyshare = None
+        self.use_keyshare = True
         self.client_early_data = None
         self.get_time = timer
         self.get_random_bytes = get_random_bytes
 
     def tls_13_server_new_session_ticket(self) -> bytes:
         # struct {
-        something = int(0).to_bytes(4, 'big')
         # uint32 ticket_lifetime;
         lifetime = int(604800).to_bytes(4, 'big')
         # uint32 ticket_age_add;
@@ -90,6 +89,7 @@ class PSKHandshake(Handshake):
         # } NewSessionTicket;
         new_session_ticket = lifetime + age_add + nonce_len + ticket_nonce + ticket_len + ticket + extensions_len + extensions
         handshake = self.attach_handshake_header(tls_constants.NEWST_TYPE, new_session_ticket)
+        print(f"Server send new session ticket!")
         return handshake
 
     def tls_13_client_parse_new_session_ticket(self, nst_msg: bytes) -> Dict[str, Union[bytes, int]]:
@@ -188,7 +188,7 @@ class PSKHandshake(Handshake):
         psk_extension_type = tls_constants.PSK_TYPE.to_bytes(2, 'big')
         psks_offered = []
         for psk in self.psks:
-            # Following two not in use right now
+            # TODO Following two not in use right now (PSK later but not here)
             # PSK: b"\xa2\xbb\xc1\xc3\xc2\x93&/qe\x16fb\xa4\x8a\x97\xcd'3F\xab\xa8\xa0\x16d\xa6\xb9\x1d\xc2\tz\xfe"
             # max_data: 4096
             identity = psk['ticket']
@@ -380,7 +380,7 @@ class PSKHandshake(Handshake):
             except ValueError:
                 # Critical error on verification
                 raise BinderVerificationError()
-            return ptxt_psk, i 
+            return ptxt_psk, i
         # None available
         raise TLSError()
 
@@ -408,55 +408,160 @@ class PSKHandshake(Handshake):
         return self.attach_handshake_header(tls_constants.EOED_TYPE, b'')
 
     def tls_13_finished(self) -> bytes:
-        raise NotImplementedError()
+        return super().tls_13_finished()
 
     def tls_13_process_finished(self, fin_msg: bytes):
-        raise NotImplementedError()
+        super().tls_13_process_finished(fin_msg)
+        # Calculate the new resumption_master_secret
+        transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        # as self.transcript has the fin_msg already
+        self.resumption_master_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "res master".encode(), transcript_hash)
 
     def tls_13_early_data_ext(self, data: bytes = b'') -> bytes:
         raise NotImplementedError()
         
     def tls_13_server_enc_ext(self) -> bytes:
-        raise NotImplementedError()
+        return super().tls_13_server_enc_ext()
         
     def tls_13_process_enc_ext(self, enc_ext_msg: bytes):
-        raise NotImplementedError()
-        
+        super().tls_13_process_enc_ext(enc_ext_msg)
+    
+    def _tls_13_server_get_remote_extensions_switch(self, ext_type, ext_bytes):
+        # First the old ones
+        print(f"Remote extension switch on server of {ext_type}")
+        if ext_type == tls_constants.SUPPORT_VERS_TYPE:
+            return 'supported versions', ext_bytes
+        if ext_type == tls_constants.SUPPORT_GROUPS_TYPE:
+            return 'supported groups', ext_bytes
+        if ext_type == tls_constants.KEY_SHARE_TYPE:
+            return 'key share', ext_bytes
+        if ext_type == tls_constants.SIG_ALGS_TYPE:
+            return 'sig algs', ext_bytes
+        # Addidions
+        if ext_type == tls_constants.PSK_TYPE:
+            return 'psk', ext_bytes
+        if ext_type == tls_constants.PSK_KEX_MODE_TYPE:
+            return 'psk mode', ext_bytes
+
     def tls_13_server_get_remote_extensions(self) -> Dict[str, bytes]:
-        raise NotImplementedError()
-        
+        return super().tls_13_server_get_remote_extensions()
+    
+    # TODO why would you take the last one? because we know for sure only two come and their order?
     def tls_13_server_parse_psk_mode_ext(self, modes_bytes: bytes) -> bytes:
         modes_len = modes_bytes[0]
         modes = modes_bytes[1:modes_len+1]
         return modes
 
+    def _tls_13_server_select_parameters_psk(self, remote_extensions: Dict[str, bytes]):
+        # PSK probably in psk extension == PSK_TYPE
+        psk_success = -1
+        if "psk mode" in remote_extensions.keys() and "psk" in remote_extensions.keys():
+            # psk and psk mode do exist
+            # get the psk
+            self.psk, self.selected_identity = self.tls_13_server_parse_psk_extension(remote_extensions['psk'])
+            # get the mode
+            psk_mode_bytes = remote_extensions["psk mode"]
+            number_modes = int.from_bytes(psk_mode_bytes[0:1], 'big') # < ... > len def
+            modes = []
+            self.use_keyshare = False
+            for i in range(number_modes):
+                mode = int.from_bytes(psk_mode_bytes[1+i:2+i], 'big')
+                if mode == tls_constants.PSK_DHE_KE_MODE:
+                    #PSK_KE_MODE = 0
+                    #PSK_DHE_KE_MODE = 1 --> if possible choose
+                    self.use_keyshare = True
+                modes.append(mode) # 255 is 1B each
+            assert len(modes) == number_modes
+        return psk_success
+
     def tls_13_server_select_parameters(self, remote_extensions: Dict[str, bytes]):
-        """This method sets the following fields to indicate the selected parameters:
-            self.use_keyshare
-            self.client_early_data
-            self.neg_version
-            self.csuite
-            self.psk
-            self.selected_identity
-            self.use_keyshare
-            self.client_early_data
-            self.accept_early_data
-            self.neg_group
-            self.pub_key
-            self.ec_pub_key,
-            self.ec_sec_key
-            self.signature
-        """
-        raise NotImplementedError()
+        #This method sets the following fields to indicate the selected parameters:
+        self._tls_13_server_select_parameters_supported(remote_extensions)
+            # self.neg_version
+            # self.neg_group
+
+        psk_type = self._tls_13_server_select_parameters_psk(remote_extensions)
+            # self.psk
+            # self.selected_identity
+            # self.use_keyshare
+        # Following would throw common group error...
+        try:
+            self._tls_13_server_select_parameters_dhe(remote_extensions)
+                # self.neg_group
+                # self.pub_key
+                # self.ec_pub_key,
+                # self.ec_sec_key
+        except TLSError as e:
+            if psk_type == tls_constants.PSK_KE_MODE: # As if psk only is a success, we do not need dhe
+                raise e
+
+        self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
+            # self.signature
+            # self.csuite
+            
+        # most likely 0RTT
+            # self.client_early_data
+            # self.accept_early_data
 
     def tls_13_prep_server_hello(self) -> bytes:
-        """ Creates the Server Hello message, updates the transcript, and sets the following fields:
-            self.client_erly_secret
-            self.server_hs_traffic_secret
-            self.client_hs_traffic_secret
-            self.master_secret
-        """
-        raise NotImplementedError()
+        # Creates the Server Hello message, updates the transcript, and sets the following fields:
+        #     self.client_early_secret
+        #     self.server_hs_traffic_secret
+        #     self.client_hs_traffic_secret
+        #     self.master_secret
+        # TODO NOW modify for PSK option of deriving the secrets
+        return super().tls_13_prep_server_hello()
+
+    def _tls_13_process_server_hello_process_extensions(self, ext_type, ext_bytes):
+        # First the old stuff
+        super()._tls_13_process_server_hello_process_extensions(ext_type, ext_bytes)
+        # Now do the new stuff
+        if (ext_type == tls_constants.PSK_TYPE):
+            # We are always in the server_hello stat in this function:
+            # struct {
+            # select (Handshake.msg_type) {
+            # case client_hello: OfferedPsks;
+            # case server_hello: uint16 selected_identity;
+            if len(ext_bytes) != 2:
+                raise InvalidMessageStructureError()
+            # };
+            # } PreSharedKeyExtension;
+            self.selected_identity = int.from_bytes(ext_bytes, 'big')
+
+    def _tls_13_process_server_hello_secret_derivation(self):
+        # Compute the Diffie-Hellman secret value
+        ecdh_secret = None
+        psk = None
+        if self.ec_pub_key is not None:
+            # We did get a keyshare extension
+            if self.neg_group not in self.ec_sec_keys.keys():
+                raise NoCommonGroupError()
+            ec_sec_key = self.ec_sec_keys[self.neg_group]
+            ec_secret_point = tls_crypto.ec_dh(ec_sec_key, self.ec_pub_key)
+            ecdh_secret = tls_crypto.point_to_secret(ec_secret_point, self.neg_group)
+        else:
+            psk = self.offered_psks[self.selected_identity]
+        # Derive the secrets
+        self.early_secret = tls_crypto.tls_extract_secret(self.csuite, psk, None)
+        derived_early_secret = tls_crypto.tls_derive_secret(
+            self.csuite, self.early_secret, "derived".encode(), "".encode())
+        
+        # (EC)DHE -> HKDF-Extract = Handshake Secret; completely the same as server
+        #transcript_hash = tls_crypto.tls_transcript_hash(
+        #    self.csuite, self.transcript)
+        handshake_secret = tls_crypto.tls_extract_secret(
+            self.csuite, ecdh_secret, derived_early_secret)
+        self.handshake_secret = handshake_secret
+        self.server_hs_traffic_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "s hs traffic".encode(), self.transcript)
+        self.client_hs_traffic_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "c hs traffic".encode(), self.transcript)
+        derived_hs_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "derived".encode(), "".encode())
+        
+        self.master_secret = tls_crypto.tls_extract_secret(
+            self.csuite, None, derived_hs_secret)
 
     def tls_13_process_server_hello(self, shelo_msg: bytes):
-        raise NotImplementedError()
+        super().tls_13_process_server_hello(shelo_msg)

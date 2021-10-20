@@ -46,6 +46,8 @@ class Handshake:
         self.remote_csuites = None
         self.num_remote_csuites = None
         self.remote_extensions = None
+        # server selected identity in client
+        self.selected_identity = None
 
         self.transcript = "".encode()
         self.get_random_bytes = get_random_bytes
@@ -188,6 +190,16 @@ class Handshake:
         self.remote_extensions = chelo[curr_pos:curr_pos+exts_len]
         self.transcript = self.transcript + chelo_msg
 
+    def _tls_13_server_get_remote_extensions_switch(self, ext_type, ext_bytes):
+        if ext_type == tls_constants.SUPPORT_VERS_TYPE:
+            return 'supported versions', ext_bytes
+        if ext_type == tls_constants.SUPPORT_GROUPS_TYPE:
+            return 'supported groups', ext_bytes
+        if ext_type == tls_constants.KEY_SHARE_TYPE:
+            return 'key share', ext_bytes
+        if ext_type == tls_constants.SIG_ALGS_TYPE:
+            return 'sig algs', ext_bytes
+
     def tls_13_server_get_remote_extensions(self) -> Dict[str, bytes]:
         curr_ext_pos = 0
         remote_extensions = {}
@@ -199,31 +211,35 @@ class Handshake:
                 self.remote_extensions[curr_ext_pos:curr_ext_pos+2], 'big')
             curr_ext_pos = curr_ext_pos + 2
             ext_bytes = self.remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
-            if ext_type == tls_constants.SUPPORT_VERS_TYPE:
-                remote_extensions['supported versions'] = ext_bytes
-            if ext_type == tls_constants.SUPPORT_GROUPS_TYPE:
-                remote_extensions['supported groups'] = ext_bytes
-            if ext_type == tls_constants.KEY_SHARE_TYPE:
-                remote_extensions['key share'] = ext_bytes
-            if ext_type == tls_constants.SIG_ALGS_TYPE:
-                remote_extensions['sig algs'] = ext_bytes
             curr_ext_pos = curr_ext_pos + ext_len
+            # Move it out to be extended for the psk handshake
+            key, value = self._tls_13_server_get_remote_extensions_switch(ext_type, ext_bytes)
+            remote_extensions[key] = value
         return remote_extensions
 
-    def tls_13_server_select_parameters(self, remote_extensions: Dict[str, bytes]):
+    def _tls_13_server_select_parameters_supported(self, remote_extensions: Dict[str, bytes]):
         self.neg_version = tls_extensions.negotiate_support_vers_ext(
             self.extensions, remote_extensions['supported versions'])
         self.neg_group = tls_extensions.negotiate_support_group_ext(
             self.extensions, remote_extensions['supported groups'])
 
+    def _tls_13_server_select_parameters_dhe(self, remote_extensions: Dict[str, bytes]):
         (self.pub_key, self.neg_group, self.ec_pub_key,
          self.ec_sec_key) = tls_extensions.negotiate_keyshare(
             self.extensions, self.neg_group, remote_extensions['key share'])
-
+    
+    def _tls_13_server_select_parameters_sig_csuite(self, remote_extensions: Dict[str, bytes]):
         self.signature = tls_extensions.negotiate_signature_ext(
             self.extensions, remote_extensions['sig algs'])
         self.csuite = tls_extensions.negotiate_support_csuite(
             self.csuites, self.num_remote_csuites, self.remote_csuites)
+    
+    def tls_13_server_select_parameters(self, remote_extensions: Dict[str, bytes]):
+        self._tls_13_server_select_parameters_supported(remote_extensions)
+
+        self._tls_13_server_select_parameters_dhe(remote_extensions)
+
+        self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
 
     def tls_13_prep_server_hello(self) -> bytes:
         # ALL OF THE LEGACY TLS SERVERHELLO INFORMATION
@@ -246,6 +262,7 @@ class Handshake:
             csuite_bytes + legacy_compression + exten_len + extensions
         shelo_msg = self.attach_handshake_header(tls_constants.SHELO_TYPE, msg)
         self.transcript += shelo_msg
+        
         early_secret = tls_crypto.tls_extract_secret(self.csuite, None, None)
         derived_early_secret = tls_crypto.tls_derive_secret(
             self.csuite, early_secret, "derived".encode(), "".encode())
@@ -264,7 +281,7 @@ class Handshake:
             self.csuite, None, derived_hs_secret)
         return shelo_msg
 
-    def tls_13_process_server_hello(self, shelo_msg: bytes):
+    def _tls_13_process_server_hello_to_extenstions(self, shelo_msg):
         # for parsing this see thread: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87748
         self.transcript += shelo_msg
         shelo = self.process_handshake_header(tls_constants.SHELO_TYPE, shelo_msg)
@@ -303,56 +320,42 @@ class Handshake:
         if len(remote_extensions) != exts_len:
             print(f"In tls_13_process_server_hello the message has wrong length for the extensions!")
             raise InvalidMessageStructureError()
-        curr_ext_pos = 0
-        while (curr_ext_pos < len(remote_extensions)):
-            # ExtensionType
-            # this time EXT_LEN_LEN is maybe the wrong constant but still two
-            ext_type = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
-            curr_ext_pos += tls_constants.EXT_LEN_LEN
-            #print('ext_type: %02d'%ext_type) # returns 43 on first round --> SUPPORT_VERS_TYPE 
-            # extension_data_len
-            ext_len = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
-            curr_ext_pos += tls_constants.EXT_LEN_LEN
-            #print('ext_len: 0x%02x'%ext_len) # returns 02 --> SUPPORT_VERS_TYPE 
-            # get actual data
-            ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
-            curr_ext_pos += ext_len
-            #print(f'ext_bytes in hex: {ext_bytes.hex()}')
-            if (ext_type == tls_constants.SUPPORT_VERS_TYPE):
-                if len(ext_bytes) != 2:
-                    raise InvalidMessageStructureError()
-                self.neg_version = int.from_bytes(ext_bytes, 'big')
-            if (ext_type == tls_constants.SUPPORT_GROUPS_TYPE):
-                if len(ext_bytes) != 2:
-                    raise InvalidMessageStructureError()
-                self.neg_group = int.from_bytes(ext_bytes[1:], 'big')
-            if (ext_type == tls_constants.SIG_ALGS_TYPE):
-                # Should not be returned at all!
+        return remote_extensions
+
+    def _tls_13_process_server_hello_process_extensions(self, ext_type, ext_bytes):
+        # Old stuff without PSK or 0-RTT
+        if (ext_type == tls_constants.SUPPORT_VERS_TYPE):
+            if len(ext_bytes) != 2:
                 raise InvalidMessageStructureError()
-            if (ext_type == tls_constants.KEY_SHARE_TYPE):
-                named_group = int.from_bytes(ext_bytes[0:2], 'big')
-                #print('named_group: 0x%04x'%named_group) # returns 0x0017
-                key_exchange_len = int.from_bytes(ext_bytes[2:4], 'big')
-                key_exchange_field = ext_bytes[4:] # 4 because 2B size
-                if len(key_exchange_field) != key_exchange_len:
-                    raise InvalidMessageStructureError()
-                # SECP256R1_VALUE, SECP384R1_VALUE, SECP521R1_VALUE
-                #  For secp256r1, secp384r1, and secp521r1, the contents are the serialized value of the following struct:
-                #  struct {
-                #  uint8 legacy_form = 4;
-                legacy_form = int.from_bytes(key_exchange_field[0:1], 'big')
-                if legacy_form != 0x04:
-                    raise InvalidMessageStructureError()
-                #  opaque X[coordinate_length];
-                #  opaque Y[coordinate_length];
-                #  } UncompressedPointRepresentation;
-                # Peers MUST validate each other’s public key Y by ensuring that 1 < Y < p-1. --> done by tinyEC
-                self.ec_pub_key = tls_crypto.convert_x_y_bytes_ec_pub(key_exchange_field[1:], named_group)
-        if curr_ext_pos != len(remote_extensions):
-            # as we should have perfectly used up all bytes
-            print(f"In tls_13_process_server_hello the message has wrong format in the extensions!")
+            self.neg_version = int.from_bytes(ext_bytes, 'big')
+        if (ext_type == tls_constants.SUPPORT_GROUPS_TYPE):
+            if len(ext_bytes) != 2:
+                raise InvalidMessageStructureError()
+            self.neg_group = int.from_bytes(ext_bytes[1:], 'big')
+        if (ext_type == tls_constants.SIG_ALGS_TYPE):
+            # Should not be returned at all!
             raise InvalidMessageStructureError()
-        
+        if (ext_type == tls_constants.KEY_SHARE_TYPE):
+            named_group = int.from_bytes(ext_bytes[0:2], 'big')
+            #print('named_group: 0x%04x'%named_group) # returns 0x0017
+            key_exchange_len = int.from_bytes(ext_bytes[2:4], 'big')
+            key_exchange_field = ext_bytes[4:] # 4 because 2B size
+            if len(key_exchange_field) != key_exchange_len:
+                raise InvalidMessageStructureError()
+            # SECP256R1_VALUE, SECP384R1_VALUE, SECP521R1_VALUE
+            #  For secp256r1, secp384r1, and secp521r1, the contents are the serialized value of the following struct:
+            #  struct {
+            #  uint8 legacy_form = 4;
+            legacy_form = int.from_bytes(key_exchange_field[0:1], 'big')
+            if legacy_form != 0x04:
+                raise InvalidMessageStructureError()
+            #  opaque X[coordinate_length];
+            #  opaque Y[coordinate_length];
+            #  } UncompressedPointRepresentation;
+            # Peers MUST validate each other’s public key Y by ensuring that 1 < Y < p-1. --> done by tinyEC
+            self.ec_pub_key = tls_crypto.convert_x_y_bytes_ec_pub(key_exchange_field[1:], named_group)
+
+    def _tls_13_process_server_hello_secret_derivation(self):
         # Compute the Diffie-Hellman secret value
         if self.neg_group not in self.ec_sec_keys.keys():
             raise NoCommonGroupError()
@@ -393,6 +396,30 @@ class Handshake:
         
         self.master_secret = tls_crypto.tls_extract_secret(
             self.csuite, None, derived_hs_secret)
+
+    def tls_13_process_server_hello(self, shelo_msg: bytes):
+        remote_extensions = self._tls_13_process_server_hello_to_extenstions(shelo_msg)
+
+        curr_ext_pos = 0
+        while (curr_ext_pos < len(remote_extensions)):
+            # ExtensionType
+            ext_type = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
+            curr_ext_pos += tls_constants.EXT_LEN_LEN
+            # extension_data_len
+            ext_len = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
+            curr_ext_pos += tls_constants.EXT_LEN_LEN
+            # get actual data
+            ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
+            curr_ext_pos += ext_len
+            # Actually handle the extension
+            self._tls_13_process_server_hello_process_extensions(ext_type, ext_bytes)
+        if curr_ext_pos != len(remote_extensions):
+            # as we should have perfectly used up all bytes
+            print(f"In tls_13_process_server_hello the message has wrong format in the extensions!")
+            raise InvalidMessageStructureError()
+            
+        # Compute the Diffie-Hellman secret value
+        self._tls_13_process_server_hello_secret_derivation()
         
     def tls_13_server_enc_ext(self):
         msg = 0x0000.to_bytes(2, 'big')

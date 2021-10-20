@@ -116,7 +116,7 @@ def tls_transcript_hash(csuite, context):
 	# Do the things for both
 	hash_object.digest_size = SHA_LEN # not sure if this is the corret way, but passes test?
 	digest = hash_object.digest()
-	assert len(digest) == SHA_LEN
+	#assert len(digest) == SHA_LEN
 	return digest
 
 def tls_hkdf_label(label, context, length: int):
@@ -127,12 +127,13 @@ def tls_hkdf_label(label, context, length: int):
 	# TODO check for non empty label
 	label_bytes = b"tls13 "+label
 	if not (7 <= len(label_bytes) <= 255):
-		raise WrongLengthError(f"The label for tls_hkdf_label is of the wrong size: {len(label)}")
+		print(f"The label for tls_hkdf_label is of the wrong size: {len(label)}")
+		raise WrongLengthError()
 	label_size = (len(label_bytes)).to_bytes(1, byteorder='big')
-	assert len(context) <= 255
+	#assert len(context) <= 255
 	context_size = (len(context)).to_bytes(1, byteorder='big')
 	hkdf_label = len_bytes + label_size + label_bytes + context_size + context
-	assert len(hkdf_label) == 2+(1+6+len(label))+(1+len(context))
+	#assert len(hkdf_label) == 2+(1+6+len(label))+(1+len(context))
 	return hkdf_label
 
 def tls_derive_key_iv(csuite, secret):

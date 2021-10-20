@@ -103,7 +103,7 @@ class TLS13ServerStateMachine(TLS13StateMachine):
         self.role = tls_constants.SERVER_FLAG
         # Manually added
         self.use_psk = use_psk
-        self.server_static_key = server_static_key
+        self.server_static_enc_key = server_static_key
 
     def finish_tls_connection_server(self, client_messages: bytes):
         if self.role != tls_constants.SERVER_FLAG:
@@ -143,8 +143,7 @@ class TLS13ServerStateMachine(TLS13StateMachine):
         elif self.state == ServerState.RECVD_CH:
             try:
                 remote_extensions = self.handshake.tls_13_server_get_remote_extensions()
-                self.handshake.tls_13_server_select_parameters(
-                    remote_extensions)
+                self.handshake.tls_13_server_select_parameters(remote_extensions)
             except TLSError as error:
                 raise error
             self.state = ServerState.NEGOTIATED
