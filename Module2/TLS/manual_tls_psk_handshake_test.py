@@ -64,6 +64,8 @@ class Tests(unittest.TestCase):
                     handshake.get_time=timer
                     psk_mode_ext = bytes.fromhex(output.readline())
                     res = handshake.tls_13_client_prep_psk_mode_extension()
+                    print(f"ref: {psk_mode_ext.hex()}")
+                    print(f"my:  {res.hex()}")
                     self.assertEqual(psk_mode_ext, res)
 
     def test_tls_13_client_add_psk_extension(self):
@@ -137,7 +139,10 @@ if __name__ == '__main__':
 
     test_fcts = [
         #(test.test_tls_13_server_new_session_ticket, "test_tls_13_server_new_session_ticket"),
-        (test.test_tls_13_client_parse_new_session_ticket, "test_tls_13_client_parse_new_session_ticket"),
+        #(test.test_tls_13_client_parse_new_session_ticket, "test_tls_13_client_parse_new_session_ticket"),
+        #(test.test_tls_13_client_prep_psk_mode_extension, "test_tls_13_client_prep_psk_mode_extension"),
+        #(test.test_tls_13_client_add_psk_extension, "test_tls_13_client_add_psk_extension"),
+        (test.test_tls_13_server_parse_psk_extension, "test_tls_13_server_parse_psk_extension"),
     ]
 
     for fct, name in test_fcts:
