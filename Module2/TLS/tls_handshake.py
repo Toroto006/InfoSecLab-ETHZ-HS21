@@ -107,7 +107,7 @@ class Handshake:
             res += el.to_bytes(size, byteorder='big')
         return res
 
-    def tls_13_client_hello(self) -> bytes:
+    def _tls_13_client_hello_chelo_ext(self) -> bytes:
         # struct {
         # ProtocolVersion legacy_version = 0x0303; /* TLS v1.2 */
         protocol_version = 0x0303.to_bytes(2, byteorder='big')
@@ -137,15 +137,24 @@ class Handshake:
         keyshare_ext, self.ec_sec_keys = tls_extensions.prep_keyshare_ext(self.extensions)
         # 4. Signature Algorithm
         supp_sigs_ext = tls_extensions.prep_signature_ext(self.extensions)
+
         extensions = supp_vers_ext + supp_groups_ext + keyshare_ext + supp_sigs_ext
-        ext_len = len(extensions).to_bytes(tls_constants.EXT_LEN_LEN, byteorder='big')
-        # } ClientHello;
-        client_hello = protocol_version + random + legsess_len + legacy_session_id + csuite_len \
-            + csuite + comp_len + legacy_compression_meth + ext_len + extensions
+        chelo = protocol_version + random + legsess_len + legacy_session_id + csuite_len \
+            + csuite + comp_len + legacy_compression_meth
+        return chelo, extensions
+
+    def _tls_13_client_hello_finish_off(self, client_hello):
         self.chelo = client_hello
         chelo_msg = self.attach_handshake_header(tls_constants.CHELO_TYPE, client_hello)
         self.transcript += chelo_msg
         return chelo_msg
+
+    def tls_13_client_hello(self) -> bytes:
+        upto, extensions = self._tls_13_client_hello_chelo_ext()
+        ext_len = len(extensions).to_bytes(tls_constants.EXT_LEN_LEN, byteorder='big')
+        # } ClientHello;
+        client_hello = upto + ext_len + extensions
+        return self._tls_13_client_hello_finish_off(client_hello)
 
     def tls_13_process_client_hello(self, chelo_msg: bytes):
         # DECONSTRUCT OUR CLIENTHELLO MESSAGE

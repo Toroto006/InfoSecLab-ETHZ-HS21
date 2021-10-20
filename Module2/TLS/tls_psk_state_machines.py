@@ -1,5 +1,6 @@
 import socket
 from enum import Enum, auto, unique
+from typing import Dict, List, Union
 from tls_error import (TLSError, InvalidMessageStructureError, WrongRoleError)
 from tls_psk_handshake import PSKHandshake
 import tls_constants
@@ -96,10 +97,13 @@ class TLS13StateMachine():
 
 
 class TLS13ServerStateMachine(TLS13StateMachine):
-    def __init__(self, conn: socket.socket) -> None:
+    def __init__(self, conn: socket.socket, use_psk: bool = False, server_static_key: bytes = None) -> None:
         super().__init__(conn)
         self.state = ServerState.START
         self.role = tls_constants.SERVER_FLAG
+        # Manually added
+        self.use_psk = use_psk
+        self.server_static_key = server_static_key
 
     def finish_tls_connection_server(self, client_messages: bytes):
         if self.role != tls_constants.SERVER_FLAG:
@@ -234,10 +238,17 @@ class TLS13ServerStateMachine(TLS13StateMachine):
 
 
 class TLS13ClientStateMachine(TLS13StateMachine):
-    def __init__(self, conn: socket.socket) -> None:
+    def __init__(self, conn: socket.socket, use_psk: bool = False, psks: List[Dict[str, Union[bytes, int]]] = [],
+                psk_modes: List[int] = [], early_data: bytes = None) -> None:
         super().__init__(conn)
         self.state = ClientState.START
         self.role = tls_constants.CLIENT_FLAG
+        # Manually added
+        self.use_psk = use_psk
+        self.psks = psks
+        self.supported_psk_modes = psk_modes
+        self.early_data = early_data
+        # TODO if use_psk there has to be a ECDH keyshare!
 
     def begin_tls_handshake(self):
         self.handshake = PSKHandshake(tls_constants.CLIENT_SUPPORTED_CIPHERSUITES,

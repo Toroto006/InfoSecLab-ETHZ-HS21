@@ -385,7 +385,16 @@ class PSKHandshake(Handshake):
         raise TLSError()
 
     def tls_13_client_hello(self) -> bytes:
-        raise NotImplementedError()
+        chelo, extensions = self._tls_13_client_hello_chelo_ext()
+        if len(self.psks) > 0:
+            # Extend by PSK if we have any
+            psk_mode_ext = self.tls_13_client_prep_psk_mode_extension()
+            extensions += psk_mode_ext
+            psk_ext, self.offered_psks = self.tls_13_client_add_psk_extension(chelo, extensions)
+            extensions += psk_ext
+        ext_len = len(extensions).to_bytes(tls_constants.EXT_LEN_LEN, byteorder='big')
+        client_hello = chelo + ext_len + extensions
+        return self._tls_13_client_hello_finish_off(client_hello)
 
     def tls_13_compute_client_early_key_iv(self) -> Tuple[bytes, bytes, int]:
         # FIRST WE NEED TO GENERATE A HANDSHAKE KEY
