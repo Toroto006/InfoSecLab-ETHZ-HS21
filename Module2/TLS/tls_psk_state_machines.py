@@ -115,8 +115,10 @@ class TLS13ServerStateMachine(TLS13StateMachine):
         msg_len = int.from_bytes(
             curr_msg[curr_pos:curr_pos + tls_constants.MSG_LEN_LEN], 'big')
         if msg_type == tls_constants.APPLICATION_TYPE:
-            ptxt_msg = self.recv_hs_enc_connect.dec_packet(
+            type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(
                 curr_msg[:msg_len])
+            if type != tls_constants.HANDSHAKE_TYPE:
+                raise InvalidMessageStructureError()
             msg_type = ptxt_msg[0]
             if msg_type == tls_constants.FINI_TYPE:
                 self.handshake.tls_13_process_finished(ptxt_msg)
