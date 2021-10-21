@@ -617,25 +617,4 @@ class PSKHandshake(Handshake):
             self.csuite, None, derived_hs_secret)
 
     def tls_13_process_server_hello(self, shelo_msg: bytes):
-        remote_extensions = self._tls_13_process_server_hello_to_extenstions(shelo_msg)
-
-        curr_ext_pos = 0
-        while (curr_ext_pos < len(remote_extensions)):
-            # ExtensionType
-            ext_type = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
-            curr_ext_pos += tls_constants.EXT_LEN_LEN
-            # extension_data_len
-            ext_len = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
-            curr_ext_pos += tls_constants.EXT_LEN_LEN
-            # get actual data
-            ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
-            curr_ext_pos += ext_len
-            # Actually handle the extension
-            self._tls_13_process_server_hello_process_extensions(ext_type, ext_bytes)
-        if curr_ext_pos != len(remote_extensions):
-            # as we should have perfectly used up all bytes
-            print(f"In tls_13_process_server_hello the message has wrong format in the extensions!")
-            raise InvalidMessageStructureError()
-            
-        # Compute the Diffie-Hellman secret value
-        self._tls_13_process_server_hello_secret_derivation()
+        super().tls_13_process_server_hello(shelo_msg)

@@ -33,17 +33,17 @@ def client_socket():
     print(msg.decode('utf-8'))
     psks = client.get_psks()
     s.close()
-    # Check
     print(f"Client closed with #psks {len(psks)}")
-    assert len(psks) == 2
-    psks = [psks[1]]
+    msg2 = "challenge resumption"
+    if len(psks) > 0:
+        msg2 = "challenge using new resumption key"
     # Another try
     s = socket.socket()
     s.connect((host, port))
     client = TLSConnection(s)
     client.connect(use_psk=True, psks=psks, psk_modes=[0,1],
                    early_data='early data'.encode())
-    client.write("challenge using new resumption key".encode())
+    client.write(msg2.encode())
     msg = client.read()
     print(msg.decode('utf-8'))
     s.close()

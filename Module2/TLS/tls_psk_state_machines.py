@@ -230,11 +230,13 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                     pass
             else:
                 # Custom
-                nst_msg = self.handshake.tls_13_server_new_session_ticket()
-                new_ticket_msg = tls_record_layer.create_TLSPlaintext(
-                    nst_msg, tls_constants.HANDSHAKE_TYPE)
-                print(f"sent with {tls_constants.HANDSHAKE_TYPE}")
-                self._send(new_ticket_msg)
+                # TODO check where to actually move this!
+                if self.use_psk:
+                    nst_msg = self.handshake.tls_13_server_new_session_ticket()
+                    new_ticket_msg = tls_record_layer.create_TLSPlaintext(
+                        nst_msg, tls_constants.HANDSHAKE_TYPE)
+                    print(f"Server sent new session ticket")
+                    self._send(new_ticket_msg)
                 # Original
                 ctxt = self.send_enc_message(write)
                 self._send(ctxt)
@@ -258,7 +260,6 @@ class TLS13ClientStateMachine(TLS13StateMachine):
         self.psks = psks
         self.supported_psk_modes = psk_modes
         self.early_data = early_data
-        # TODO if use_psk there has to be a ECDH keyshare!
 
     def begin_tls_handshake(self):
         self.handshake = PSKHandshake(tls_constants.CLIENT_SUPPORTED_CIPHERSUITES,
@@ -427,7 +428,8 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                 elif content_type == tls_constants.HANDSHAKE_TYPE:
                     psk_dict = self.handshake.tls_13_client_parse_new_session_ticket(msg)
                     self.psks.append(psk_dict)
-                    return self.transition(write)
+                    # TODO check if this is the right way
+                    return content_type, None
                 else:
                     pass
             else:
