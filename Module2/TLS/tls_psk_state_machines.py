@@ -231,6 +231,7 @@ class TLS13ServerStateMachine(TLS13StateMachine):
             else:
                 # Custom
                 # TODO check where to actually move this!
+                # thread: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87838
                 if self.use_psk:
                     nst_msg = self.handshake.tls_13_server_new_session_ticket()
                     new_ticket_msg = tls_record_layer.create_TLSPlaintext(

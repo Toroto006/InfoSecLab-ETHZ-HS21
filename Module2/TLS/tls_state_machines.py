@@ -410,7 +410,7 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                 self._send(ctxt)
         else:
             pass
-        return None
+        return (None, None)
 
     def connected(self) -> bool:
         return self.state == ClientState.CONNECTED
