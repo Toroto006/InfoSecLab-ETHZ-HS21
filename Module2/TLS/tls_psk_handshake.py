@@ -136,7 +136,6 @@ class PSKHandshake(Handshake):
         t_cur_pos += tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]
         if t_cur_pos != len(ticket):
             raise InvalidMessageStructureError()
-        # extract PSK --> not possible, right? As this is the servers key for early stuff, but can calculate!
         psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, tls_constants.SHA_256_LEN)
         #print(f"Client self.resumption_master_secret: {self.resumption_master_secret.hex()}")
         #print(f"Client psk: {psk.hex()}")
@@ -401,12 +400,16 @@ class PSKHandshake(Handshake):
             # Extend by PSK if we have any
             psk_mode_ext = self.tls_13_client_prep_psk_mode_extension()
             extensions += psk_mode_ext
+            # Add EarlyDataIndication if there is any
+            if self.early_data is not None:
+                print(f"Client adding EarlyDataIndication")
+                extensions += tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big')
             psk_ext, self.offered_psks = self.tls_13_client_add_psk_extension(chelo, extensions)
             extensions += psk_ext
         ext_len = len(extensions).to_bytes(tls_constants.EXT_LEN_LEN, byteorder='big')
         client_hello = chelo + ext_len + extensions
         return self._tls_13_client_hello_finish_off(client_hello)
-
+    
     def tls_13_compute_client_early_key_iv(self) -> Tuple[bytes, bytes, int]:
         # FIRST WE NEED TO GENERATE A HANDSHAKE KEY
         if self.client_early_traffic_secret is None:
@@ -434,13 +437,37 @@ class PSKHandshake(Handshake):
         super().tls_13_process_finished(fin_msg)
 
     def tls_13_early_data_ext(self, data: bytes = b'') -> bytes:
+         # Add first early data if there is any
+        psk = self.offered_psks[0]['PSK'] # as defined in the labsheet lets use the first psk
+        # Derive the secrets
+        early_secret = tls_crypto.tls_extract_secret(self.csuite, psk, None)
+        # Is this where the client_early_traffic_secret should be calculated??
+        self.client_early_traffic_secret = tls_crypto.tls_derive_secret(self.csuite, \
+            early_secret, "c e traffic".encode(), self.transcript)
+        # TODO return early data
         raise NotImplementedError()
         
     def tls_13_server_enc_ext(self) -> bytes:
-        return super().tls_13_server_enc_ext()
+        if self.accept_early_data:
+            msg = tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
+        else:
+            msg = 0x0000.to_bytes(2, 'big')
+        print(f"Server enc ext {msg.hex()}")
+        enc_ext_msg = self.attach_handshake_header(tls_constants.ENEXT_TYPE, msg)
+        self.transcript = self.transcript + enc_ext_msg
+        return enc_ext_msg
         
     def tls_13_process_enc_ext(self, enc_ext_msg: bytes):
-        super().tls_13_process_enc_ext(enc_ext_msg)
+        enc_ext = self.process_handshake_header(tls_constants.ENEXT_TYPE, enc_ext_msg)
+        self.transcript = self.transcript + enc_ext_msg
+        if len(enc_ext) < 2:
+            raise InvalidMessageStructureError()
+        if int.from_bytes(enc_ext[0:2], 'big') == tls_constants.EARLY_DATA_TYPE:
+            self.accept_early_data = True
+            print(f"{self.role} got EarlyDataIndication in ENEXT_TYPE")
+            return
+        if enc_ext != 0x0000.to_bytes(2, 'big'):
+            raise InvalidMessageStructureError()
     
     def _tls_13_server_get_remote_extensions_switch(self, ext_type, ext_bytes):
         # First the old ones
@@ -457,6 +484,12 @@ class PSKHandshake(Handshake):
             return 'psk', ext_bytes
         if ext_type == tls_constants.PSK_KEX_MODE_TYPE:
             return 'psk mode', ext_bytes
+        # 0-RTT maybe?
+        if ext_type == tls_constants.EARLY_DATA_TYPE:
+            print(f"Server read EarlyDataIndication")
+            return "0rtt", None
+        print(f"{self.role} got {ext_type} as an extension, but now known")
+        return None, None
 
     def tls_13_server_get_remote_extensions(self) -> Dict[str, bytes]:
         return super().tls_13_server_get_remote_extensions()
@@ -481,10 +514,12 @@ class PSKHandshake(Handshake):
             self.use_keyshare = False
             for i in range(number_modes):
                 mode = int.from_bytes(psk_mode_bytes[1+i:2+i], 'big')
+                psk_success = mode
                 if mode == tls_constants.PSK_DHE_KE_MODE:
                     #PSK_KE_MODE = 0
                     #PSK_DHE_KE_MODE = 1 --> if possible choose
                     self.use_keyshare = True
+                    return tls_constants.PSK_DHE_KE_MODE
                 modes.append(mode) # 255 is 1B each
             assert len(modes) == number_modes
         return psk_success
@@ -503,6 +538,14 @@ class PSKHandshake(Handshake):
             # self.psk
             # self.selected_identity
             # self.use_keyshare
+
+        # most likely 0RTT
+        if psk_type > -1: # so ther is a psk value chosen
+            self.accept_early_data = True
+            print("Server accepts early data!")
+            # self.client_early_data
+            # self.accept_early_data --> as we need to know psk type
+        
         # Following would throw common group error...
         try:
             self._tls_13_server_select_parameters_dhe(remote_extensions)
@@ -513,11 +556,6 @@ class PSKHandshake(Handshake):
         except TLSError as e:
             if psk_type == tls_constants.PSK_KE_MODE: # As if psk only is a success, we do not need dhe
                 raise e
-
-            
-        # most likely 0RTT
-            # self.client_early_data
-            # self.accept_early_data
 
     def _tls_13_prep_server_hello_create_extensions(self):
         # WE ATTACH ALL OUR EXTENSIONS but to the list

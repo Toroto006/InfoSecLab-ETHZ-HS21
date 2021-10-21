@@ -273,9 +273,19 @@ class TLS13ClientStateMachine(TLS13StateMachine):
 
         self._send(tls_client_hello)
 
+    def do_early_data(self):
+        if self.early_data is not None:
+            early_data_msg = self.handshake.tls_13_early_data_ext()
+            key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
+            send_hs_enc_connect = tls_record_layer.ProtectedRecordLayer(
+                    key, iv, csuite, tls_constants.RECORD_WRITE)
+            msg = send_hs_enc_connect.enc_packet(early_data_msg, tls_constants.APPLICATION_TYPE)
+            self._send(msg)
+
     def transition(self, write: bytes = None):
         if self.state == ClientState.START:
             self.begin_tls_handshake()
+            #self.do_early_data()
             self.state = ClientState.WAIT_SH
         elif self.state == ClientState.WAIT_SH:
             msg_bytes = self._receive()
