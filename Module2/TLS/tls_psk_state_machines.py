@@ -11,6 +11,7 @@ import tls_record_layer
 class ServerState(Enum):
     START = auto()
     RECVD_CH = auto()
+    WAIT_EOED = auto()
     WAIT_FLIGHT2 = auto()
     NEGOTIATED = auto()
     WAIT_FINISHED = auto()
@@ -178,7 +179,7 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                 cert_verify_msg = self.handshake.tls_13_server_cert_verify()
                 tls_cert_verify_msg = self.send_hs_enc_connect.enc_packet(cert_verify_msg, tls_constants.HANDSHAKE_TYPE)
                 self._send(tls_scert_msg + tls_cert_verify_msg)
-
+        
             fin_msg = self.handshake.tls_13_finished()
             tls_fin_msg = self.send_hs_enc_connect.enc_packet(fin_msg, tls_constants.HANDSHAKE_TYPE)
 
@@ -197,8 +198,37 @@ class TLS13ServerStateMachine(TLS13StateMachine):
             self.recv_ap_enc_connect = tls_record_layer.ProtectedRecordLayer(
                 self.client_ap_traffic_key, self.client_ap_traffic_iv, self.csuite,
                 tls_constants.RECORD_READ)
-
-            self.state = ServerState.WAIT_FLIGHT2
+            if self.handshake.accept_early_data:
+                self.state = ServerState.WAIT_EOED
+            else:
+                self.state = ServerState.WAIT_FLIGHT2
+        elif self.state == ServerState.WAIT_EOED:
+            print(f"{self.role} started EOED")
+            # save in self.client_early_data
+            # Client does:
+            # early_data_msg = self.handshake.tls_13_early_data_ext()
+            # key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
+            # send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_WRITE)
+            # msg = send_enc_connect.enc_packet(early_data_msg, tls_constants.APPLICATION_TYPE)
+            # self._send(msg)
+            key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
+            print(f"{self.role} has {key.hex()} and {iv.hex()}")
+            send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_READ)
+            msg_bytes = self._receive()
+            if not hasattr(self, 'client_early_data'):
+                self.client_early_data = b""
+            content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
+            if content_type == tls_constants.APPLICATION_TYPE:
+                msg_type, ptxt = send_enc_connect.dec_packet(msg_bytes)
+                if msg_type == tls_constants.APPLICATION_TYPE:
+                    # we got the ealry data
+                    self.client_early_data += ptxt
+                elif msg_type == tls_constants.EOED_TYPE:
+                    self.state = ServerState.WAIT_FINISHED
+                else:
+                    print(f"{self.role} did not get a EOED or APPLICATION in WAIT_EOED but a {msg_type}")
+                    pass
+            # we are not done with data
         elif self.state == ServerState.WAIT_FLIGHT2:
             self.state = ServerState.WAIT_FINISHED
         elif self.state == ServerState.WAIT_FINISHED:
@@ -209,11 +239,9 @@ class TLS13ServerStateMachine(TLS13StateMachine):
             if write is None:
                 # We don't support renegotiation, so we can don't read if we want to write.
                 msg_bytes = self._receive()
-                content_type, msg = tls_record_layer.read_TLSPlaintext(
-                    msg_bytes)
+                content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
                 if content_type == tls_constants.APPLICATION_TYPE:
-                    msg_type, ptxt = self.recv_ap_enc_connect.dec_packet(
-                        msg_bytes)
+                    msg_type, ptxt = self.recv_ap_enc_connect.dec_packet(msg_bytes)
                     if msg_type == tls_constants.APPLICATION_TYPE:
                         return msg_type, ptxt
                     elif msg_type == tls_constants.HANDSHAKE_TYPE:
@@ -269,17 +297,21 @@ class TLS13ClientStateMachine(TLS13StateMachine):
 
     def do_early_data(self):
         if self.early_data is not None:
-            early_data_msg = self.handshake.tls_13_early_data_ext()
+            print(f"Client do early data with {self.early_data}")
+            early_data_msg = self.handshake.tls_13_early_data_ext(self.early_data)
             key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
-            send_hs_enc_connect = tls_record_layer.ProtectedRecordLayer(
-                    key, iv, csuite, tls_constants.RECORD_WRITE)
-            msg = send_hs_enc_connect.enc_packet(early_data_msg, tls_constants.APPLICATION_TYPE)
+            print(f"{self.role} has {key.hex()} and {iv.hex()}")
+            send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_WRITE)
+            msg = send_enc_connect.enc_packet(early_data_msg, tls_constants.APPLICATION_TYPE)
+            self._send(msg)
+            # Send the finish message
+            msg = send_enc_connect.enc_packet(b"", tls_constants.EOED_TYPE)
             self._send(msg)
 
     def transition(self, write: bytes = None):
         if self.state == ClientState.START:
             self.begin_tls_handshake()
-            #self.do_early_data() # Should be correct
+            self.do_early_data() # Should be correct
             self.state = ClientState.WAIT_SH
         elif self.state == ClientState.WAIT_SH:
             msg_bytes = self._receive()

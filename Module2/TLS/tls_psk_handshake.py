@@ -454,15 +454,17 @@ class PSKHandshake(Handshake):
                 self.csuite, self.master_secret, "res master".encode(), transcript_hash)
 
     def tls_13_early_data_ext(self, data: bytes = b'') -> bytes:
-         # Add first early data if there is any
         psk = self.offered_psks[0]['PSK'] # as defined in the labsheet lets use the first psk
+        csuite = self.offered_psks[0]['csuite'] # as defined in the labsheet lets use the first psk
         # Derive the secrets
-        early_secret = tls_crypto.tls_extract_secret(self.csuite, psk, None)
+        early_secret = tls_crypto.tls_extract_secret(csuite, psk, None)
         # Is this where the client_early_traffic_secret should be calculated??
-        self.client_early_traffic_secret = tls_crypto.tls_derive_secret(self.csuite, \
+        self.client_early_traffic_secret = tls_crypto.tls_derive_secret(csuite, \
             early_secret, "c e traffic".encode(), self.transcript)
-        # TODO return early data
-        raise NotImplementedError()
+        
+        # Now actually package the data in application and send
+        ed_msg = self.attach_handshake_header(tls_constants.APPLICATION_TYPE, data)
+        return ed_msg
         
     def tls_13_server_enc_ext(self) -> bytes:
         if self.accept_early_data:
@@ -568,6 +570,11 @@ class PSKHandshake(Handshake):
             print("Server accepts early data!")
             # self.client_early_data
             # self.accept_early_data --> as we need to know psk type
+            # Derive the secrets
+            early_secret = tls_crypto.tls_extract_secret(self.csuite, self.psk, None)
+            # Is this where the client_early_traffic_secret should be calculated??
+            self.client_early_traffic_secret = tls_crypto.tls_derive_secret(self.csuite, \
+            early_secret, "c e traffic".encode(), self.transcript)
         
         # Following would throw common group error...
         try:
