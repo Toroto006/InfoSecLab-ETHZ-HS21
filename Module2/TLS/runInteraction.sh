@@ -9,12 +9,12 @@ cecho(){
 
 killall python3 2> /dev/null
 VAR=$(
-    . /home/toroto008/Documents/ETHZ/InfoSecLab/Module2/TLS/venv/bin/activate > /dev/null  # activate virtualenv
+    #. /home/toroto008/Documents/ETHZ/InfoSecLab/Module2/TLS/venv/bin/activate > /dev/null  # activate virtualenv
     # tool from /opt/bin/ which requires virtualenv
-    cd /home/toroto008/Documents/ETHZ/InfoSecLab/Module2/TLS; python3 psk_server.py 1>&2
+    python3 psk_server.py 1>&2
 ) & sleep 1 && VAR2=$(
-    . /home/toroto008/Documents/ETHZ/InfoSecLab/Module2/TLS/venv/bin/activate > /dev/null  # activate virtualenv
+    #. /home/toroto008/Documents/ETHZ/InfoSecLab/Module2/TLS/venv/bin/activate > /dev/null  # activate virtualenv
     # tool from /opt/bin/ which requires virtualenv
-    cd /home/toroto008/Documents/ETHZ/InfoSecLab/Module2/TLS; python3 psk_client.py 2>&1 && killall python3
+    python3 psk_client.py 2>&1 && killall python3
 )
 cecho "GREEN" "$VAR2"
