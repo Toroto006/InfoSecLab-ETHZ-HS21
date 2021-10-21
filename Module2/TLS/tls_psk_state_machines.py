@@ -52,6 +52,8 @@ class TLS13StateMachine():
 
     def _send(self, msg: bytes):
         sent = 0
+        #if self.server_ap_traffic_key is not None:
+        #    print(f"{self.role} uses as server traffic key: {self.server_ap_traffic_key.hex()}")
         while sent < len(msg):
             s = self.socket.send(msg[sent:])
             if s == 0:

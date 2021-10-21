@@ -27,6 +27,12 @@ generate_server_random_test = False
 def timer() -> int:
     return int(time.time()*1000)
 
+def print_dict(dict, hexes):
+    for k, v in dict.items():
+        val = v
+        if k in hexes:
+            val = v.hex()
+        print(f"{k}: {val}")
 
 class PSKHandshake(Handshake):
     "This is the class for aspects of the handshake protocol"
@@ -89,11 +95,9 @@ class PSKHandshake(Handshake):
         # } NewSessionTicket;
         new_session_ticket = lifetime + age_add + nonce_len + ticket_nonce + ticket_len + ticket + extensions_len + extensions
         handshake = self.attach_handshake_header(tls_constants.NEWST_TYPE, new_session_ticket)
-        print(f"Server send new session ticket!")
         return handshake
 
     def tls_13_client_parse_new_session_ticket(self, nst_msg: bytes) -> Dict[str, Union[bytes, int]]:
-        print(f"Started tls_13_client_parse_new_session_ticket")
         arrival_time = self.get_time()
         # https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87942 for issues with the binder key creation
         nst = self.process_handshake_header(tls_constants.NEWST_TYPE, nst_msg)
@@ -134,6 +138,8 @@ class PSKHandshake(Handshake):
             raise InvalidMessageStructureError()
         # extract PSK --> not possible, right? As this is the servers key for early stuff, but can calculate!
         psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, tls_constants.SHA_256_LEN)
+        #print(f"Client self.resumption_master_secret: {self.resumption_master_secret.hex()}")
+        #print(f"Client psk: {psk.hex()}")
         # extract max data from extension
         ext_type = int.from_bytes(extensions[0:2], 'big')
         max_data = None
@@ -167,7 +173,7 @@ class PSKHandshake(Handshake):
             "csuite": self.csuite,
             "arrival": arrival_time
         }
-        print(f"tls_13_client_parse_new_session_ticket with {psk_dict}")
+        #print_dict(psk_dict, ['PSK', 'ticket', 'binder key'])
         return psk_dict
 
     def tls_13_client_prep_psk_mode_extension(self) -> bytes:
@@ -274,6 +280,8 @@ class PSKHandshake(Handshake):
             transcript_hash = tls_crypto.tls_transcript_hash(csuite, transcript)
             binder_tag = tls_crypto.tls_finished_mac(csuite, finished_key, transcript_hash)
             psk_binder_entry = len(binder_tag).to_bytes(1, 'big') + binder_tag # size correct
+            #print(f"Client binder key: {base_key.hex()}")
+            #print(f"Client finished_key: {finished_key.hex()}")
             binders_list.append(psk_binder_entry)
 
         binders = b''.join(binders_list) # concat all binders
@@ -297,7 +305,7 @@ class PSKHandshake(Handshake):
         cur_pos += binders_len
         if cur_pos != len(psk_extension):
             raise InvalidMessageStructureError()
-        
+                
         identity_list = []
         cur_ident_pos = 0
         while cur_ident_pos < len(identities):
@@ -377,6 +385,7 @@ class PSKHandshake(Handshake):
             binders_len_len_plus_len = 2 + binders_len
             truncated_transcript = self.transcript[:-binders_len_len_plus_len]
             transcript_hash = tls_crypto.tls_transcript_hash(csuite, truncated_transcript)
+            #print(f"Server finished_key: {finished_key.hex()}")
             try:
                 tls_crypto.tls_finished_mac_verify(self.csuite, finished_key, transcript_hash, binder)
             except ValueError:
@@ -413,12 +422,16 @@ class PSKHandshake(Handshake):
         return super().tls_13_finished()
 
     def tls_13_process_finished(self, fin_msg: bytes):
-        super().tls_13_process_finished(fin_msg)
-        # Calculate the new resumption_master_secret
-        transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        # Calculate the new resumption_master_secret 
+        if self.role == tls_constants.SERVER_FLAG:
+            transcript = self.transcript
+        else:
+            transcript = self.transcript + fin_msg
+        transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, transcript)
         # as self.transcript has the fin_msg already
         self.resumption_master_secret = tls_crypto.tls_derive_secret(
                 self.csuite, self.master_secret, "res master".encode(), transcript_hash)
+        super().tls_13_process_finished(fin_msg)
 
     def tls_13_early_data_ext(self, data: bytes = b'') -> bytes:
         raise NotImplementedError()
@@ -431,7 +444,6 @@ class PSKHandshake(Handshake):
     
     def _tls_13_server_get_remote_extensions_switch(self, ext_type, ext_bytes):
         # First the old ones
-        print(f"Remote extension switch on server of {ext_type}")
         if ext_type == tls_constants.SUPPORT_VERS_TYPE:
             return 'supported versions', ext_bytes
         if ext_type == tls_constants.SUPPORT_GROUPS_TYPE:
@@ -483,6 +495,10 @@ class PSKHandshake(Handshake):
             # self.neg_version
             # self.neg_group
 
+        self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
+            # self.signature
+            # self.csuite
+
         psk_type = self._tls_13_server_select_parameters_psk(remote_extensions)
             # self.psk
             # self.selected_identity
@@ -498,21 +514,56 @@ class PSKHandshake(Handshake):
             if psk_type == tls_constants.PSK_KE_MODE: # As if psk only is a success, we do not need dhe
                 raise e
 
-        self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
-            # self.signature
-            # self.csuite
             
         # most likely 0RTT
             # self.client_early_data
             # self.accept_early_data
 
+    def _tls_13_prep_server_hello_create_extensions(self):
+        # WE ATTACH ALL OUR EXTENSIONS but to the list
+        extensions_list = []
+        neg_vers_ext = tls_extensions.finish_support_vers_ext(self.neg_version)
+        extensions_list.append(neg_vers_ext)
+        neg_group_ext = tls_extensions.finish_support_group_ext(self.neg_group)
+        extensions_list.append(neg_group_ext)
+        if self.use_keyshare:
+            supported_keyshare = tls_extensions.finish_keyshare_ext(self.pub_key, self.neg_group)
+            extensions_list.append(supported_keyshare)
+        if self.psk is not None:
+            psk_bytes = self.selected_identity.to_bytes(2, 'big')
+            psk_extension_type = tls_constants.PSK_TYPE.to_bytes(2, 'big')
+            psk_ext_len = len(psk_bytes).to_bytes(2, 'big')
+            psk_ext = psk_extension_type + psk_ext_len + psk_bytes
+            extensions_list.append(psk_ext)
+        extensions = b''.join(extensions_list)
+        return extensions
+
+    def _tls_13_prep_server_hello_derive_secrets(self):
+        early_secret = tls_crypto.tls_extract_secret(self.csuite, self.psk, None)
+        derived_early_secret = tls_crypto.tls_derive_secret(
+            self.csuite, early_secret, "derived".encode(), "".encode())
+        ecdh_secret = None
+        if self.ec_pub_key is not None:
+            ecdh_secret_point = tls_crypto.ec_dh(self.ec_sec_key, self.ec_pub_key)
+            ecdh_secret = tls_crypto.point_to_secret(
+                ecdh_secret_point, self.neg_group)
+        handshake_secret = tls_crypto.tls_extract_secret(
+            self.csuite, ecdh_secret, derived_early_secret)
+        self.server_hs_traffic_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "s hs traffic".encode(), self.transcript)
+        self.client_hs_traffic_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "c hs traffic".encode(), self.transcript)
+        derived_hs_secret = tls_crypto.tls_derive_secret(
+            self.csuite, handshake_secret, "derived".encode(), "".encode())
+        self.master_secret = tls_crypto.tls_extract_secret(
+            self.csuite, None, derived_hs_secret)
+    
     def tls_13_prep_server_hello(self) -> bytes:
         # Creates the Server Hello message, updates the transcript, and sets the following fields:
         #     self.client_early_secret
         #     self.server_hs_traffic_secret
         #     self.client_hs_traffic_secret
         #     self.master_secret
-        # TODO NOW modify for PSK option of deriving the secrets
         return super().tls_13_prep_server_hello()
 
     def _tls_13_process_server_hello_process_extensions(self, ext_type, ext_bytes):
@@ -542,8 +593,8 @@ class PSKHandshake(Handshake):
             ec_sec_key = self.ec_sec_keys[self.neg_group]
             ec_secret_point = tls_crypto.ec_dh(ec_sec_key, self.ec_pub_key)
             ecdh_secret = tls_crypto.point_to_secret(ec_secret_point, self.neg_group)
-        else:
-            psk = self.offered_psks[self.selected_identity]
+        if self.selected_identity is not None:
+            psk = self.offered_psks[self.selected_identity]['PSK']
         # Derive the secrets
         self.early_secret = tls_crypto.tls_extract_secret(self.csuite, psk, None)
         derived_early_secret = tls_crypto.tls_derive_secret(
@@ -566,4 +617,25 @@ class PSKHandshake(Handshake):
             self.csuite, None, derived_hs_secret)
 
     def tls_13_process_server_hello(self, shelo_msg: bytes):
-        super().tls_13_process_server_hello(shelo_msg)
+        remote_extensions = self._tls_13_process_server_hello_to_extenstions(shelo_msg)
+
+        curr_ext_pos = 0
+        while (curr_ext_pos < len(remote_extensions)):
+            # ExtensionType
+            ext_type = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
+            curr_ext_pos += tls_constants.EXT_LEN_LEN
+            # extension_data_len
+            ext_len = int.from_bytes(remote_extensions[curr_ext_pos:curr_ext_pos+tls_constants.EXT_LEN_LEN], 'big')
+            curr_ext_pos += tls_constants.EXT_LEN_LEN
+            # get actual data
+            ext_bytes = remote_extensions[curr_ext_pos:curr_ext_pos+ext_len]
+            curr_ext_pos += ext_len
+            # Actually handle the extension
+            self._tls_13_process_server_hello_process_extensions(ext_type, ext_bytes)
+        if curr_ext_pos != len(remote_extensions):
+            # as we should have perfectly used up all bytes
+            print(f"In tls_13_process_server_hello the message has wrong format in the extensions!")
+            raise InvalidMessageStructureError()
+            
+        # Compute the Diffie-Hellman secret value
+        self._tls_13_process_server_hello_secret_derivation()

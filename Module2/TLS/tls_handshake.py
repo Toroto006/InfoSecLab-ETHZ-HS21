@@ -241,28 +241,16 @@ class Handshake:
 
         self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
 
-    def tls_13_prep_server_hello(self) -> bytes:
-        # ALL OF THE LEGACY TLS SERVERHELLO INFORMATION
-        # Must be set like this for compatability reasons
-        legacy_vers = tls_constants.LEGACY_VERSION.to_bytes(2, 'big')
-        # Must be set like this for compatability reasons
-        random = get_random_bytes(32)
-        legacy_sess_id = self.sid  # Must be set like this for compatability reasons
-        legacy_sess_id_len = len(self.sid).to_bytes(1, 'big')
-        legacy_compression = (0x00).to_bytes(1, 'big')
-        csuite_bytes = self.csuite.to_bytes(2, 'big')
+    def _tls_13_prep_server_hello_create_extensions(self):
         # WE ATTACH ALL OUR EXTENSIONS
         neg_vers_ext = tls_extensions.finish_support_vers_ext(self.neg_version)
         neg_group_ext = tls_extensions.finish_support_group_ext(self.neg_group)
-        supported_keyshare = tls_extensions.finish_keyshare_ext(
-            self.pub_key, self.neg_group)
+        supported_keyshare = tls_extensions.finish_keyshare_ext(self.pub_key, self.neg_group)
         extensions = neg_vers_ext + neg_group_ext + supported_keyshare
-        exten_len = len(extensions).to_bytes(2, 'big')
-        msg = legacy_vers + random + legacy_sess_id_len + legacy_sess_id + \
-            csuite_bytes + legacy_compression + exten_len + extensions
-        shelo_msg = self.attach_handshake_header(tls_constants.SHELO_TYPE, msg)
-        self.transcript += shelo_msg
-        
+
+        return extensions
+
+    def _tls_13_prep_server_hello_derive_secrets(self):
         early_secret = tls_crypto.tls_extract_secret(self.csuite, None, None)
         derived_early_secret = tls_crypto.tls_derive_secret(
             self.csuite, early_secret, "derived".encode(), "".encode())
@@ -279,6 +267,26 @@ class Handshake:
             self.csuite, handshake_secret, "derived".encode(), "".encode())
         self.master_secret = tls_crypto.tls_extract_secret(
             self.csuite, None, derived_hs_secret)
+
+    def tls_13_prep_server_hello(self) -> bytes:
+        # ALL OF THE LEGACY TLS SERVERHELLO INFORMATION
+        # Must be set like this for compatability reasons
+        legacy_vers = tls_constants.LEGACY_VERSION.to_bytes(2, 'big')
+        # Must be set like this for compatability reasons
+        random = get_random_bytes(32)
+        legacy_sess_id = self.sid  # Must be set like this for compatability reasons
+        legacy_sess_id_len = len(self.sid).to_bytes(1, 'big')
+        legacy_compression = (0x00).to_bytes(1, 'big')
+        csuite_bytes = self.csuite.to_bytes(2, 'big')
+        extensions = self._tls_13_prep_server_hello_create_extensions()
+        exten_len = len(extensions).to_bytes(2, 'big')
+        msg = legacy_vers + random + legacy_sess_id_len + legacy_sess_id + \
+            csuite_bytes + legacy_compression + exten_len + extensions
+        shelo_msg = self.attach_handshake_header(tls_constants.SHELO_TYPE, msg)
+        self.transcript += shelo_msg
+        
+        self._tls_13_prep_server_hello_derive_secrets()
+
         return shelo_msg
 
     def _tls_13_process_server_hello_to_extenstions(self, shelo_msg):
