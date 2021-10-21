@@ -309,11 +309,12 @@ class Handshake:
         curr_pos = curr_pos + tls_constants.SID_LEN_LEN
         if sess_id_len != 32:
             raise InvalidMessageStructureError()
-        session_id = shelo[curr_pos:curr_pos+sess_id_len] # TODO no check for session_id?
+        session_id = shelo[curr_pos:curr_pos+sess_id_len]
         curr_pos = curr_pos+sess_id_len
         # CSuite
-        # TODO check that it is one of mine!
         self.csuite = int.from_bytes(shelo[curr_pos:curr_pos+tls_constants.CSUITE_LEN], 'big')
+        if self.csuite not in tls_constants.SERVER_SUPPORTED_CIPHERSUITES:
+            raise InvalidMessageStructureError()
         curr_pos = curr_pos + tls_constants.CSUITE_LEN
         # print('0x%02x'%self.csuite) # returns nice 0x1301 --> TLS_AES_128_GCM_SHA256
         # legacy_compression_method
@@ -541,6 +542,7 @@ class Handshake:
                 self.csuite, self.master_secret, "s ap traffic".encode(), transcript_hash)
             self.client_ap_traffic_secret = tls_crypto.tls_derive_secret(
                 self.csuite, self.master_secret, "c ap traffic".encode(), transcript_hash)
+        
         return fin_msg
 
     def tls_13_process_finished(self, fin_msg: bytes):

@@ -151,8 +151,7 @@ class TLS13ServerStateMachine(TLS13StateMachine):
             self.state = ServerState.NEGOTIATED
         elif self.state == ServerState.NEGOTIATED:
             msg = self.handshake.tls_13_prep_server_hello()
-            tls_server_hello = tls_record_layer.create_TLSPlaintext(
-                msg, tls_constants.HANDSHAKE_TYPE)
+            tls_server_hello = tls_record_layer.create_TLSPlaintext(msg, tls_constants.HANDSHAKE_TYPE)
             tls_ccs_msg = tls_record_layer.create_ccs_packet()
 
             (self.server_hs_traffic_key, self.server_hs_traffic_iv,
@@ -170,21 +169,18 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                 tls_constants.RECORD_READ)
 
             enc_ext_msg = self.handshake.tls_13_server_enc_ext()
-            tls_enc_ext_msg = self.send_hs_enc_connect.enc_packet(
-                enc_ext_msg, tls_constants.HANDSHAKE_TYPE)
+            tls_enc_ext_msg = self.send_hs_enc_connect.enc_packet(enc_ext_msg, tls_constants.HANDSHAKE_TYPE)
             self._send(tls_server_hello + tls_ccs_msg + tls_enc_ext_msg)
 
-            scert_msg = self.handshake.tls_13_server_cert()
-            tls_scert_msg = self.send_hs_enc_connect.enc_packet(
-                scert_msg, tls_constants.HANDSHAKE_TYPE)
-            cert_verify_msg = self.handshake.tls_13_server_cert_verify()
-            tls_cert_verify_msg = self.send_hs_enc_connect.enc_packet(
-                cert_verify_msg, tls_constants.HANDSHAKE_TYPE)
-            self._send(tls_scert_msg + tls_cert_verify_msg)
+            if self.handshake.selected_identity is None:
+                scert_msg = self.handshake.tls_13_server_cert()
+                tls_scert_msg = self.send_hs_enc_connect.enc_packet(scert_msg, tls_constants.HANDSHAKE_TYPE)
+                cert_verify_msg = self.handshake.tls_13_server_cert_verify()
+                tls_cert_verify_msg = self.send_hs_enc_connect.enc_packet(cert_verify_msg, tls_constants.HANDSHAKE_TYPE)
+                self._send(tls_scert_msg + tls_cert_verify_msg)
 
             fin_msg = self.handshake.tls_13_finished()
-            tls_fin_msg = self.send_hs_enc_connect.enc_packet(
-                fin_msg, tls_constants.HANDSHAKE_TYPE)
+            tls_fin_msg = self.send_hs_enc_connect.enc_packet(fin_msg, tls_constants.HANDSHAKE_TYPE)
 
             self._send(tls_fin_msg)
 
@@ -230,14 +226,12 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                     pass
             else:
                 # Custom
-                # TODO check where to actually move this!
                 # thread: https://moodle-app2.let.ethz.ch/mod/forum/discuss.php?d=87838
                 if self.use_psk:
                     nst_msg = self.handshake.tls_13_server_new_session_ticket()
-                    new_ticket_msg = tls_record_layer.create_TLSPlaintext(
-                        nst_msg, tls_constants.HANDSHAKE_TYPE)
+                    app_msg = self.send_ap_enc_connect.enc_packet(nst_msg, tls_constants.HANDSHAKE_TYPE)
+                    self._send(app_msg)
                     print(f"Server sent new session ticket")
-                    self._send(new_ticket_msg)
                 # Original
                 ctxt = self.send_enc_message(write)
                 self._send(ctxt)
@@ -285,7 +279,7 @@ class TLS13ClientStateMachine(TLS13StateMachine):
     def transition(self, write: bytes = None):
         if self.state == ClientState.START:
             self.begin_tls_handshake()
-            #self.do_early_data()
+            #self.do_early_data() # Should be correct
             self.state = ClientState.WAIT_SH
         elif self.state == ClientState.WAIT_SH:
             msg_bytes = self._receive()
@@ -321,17 +315,18 @@ class TLS13ClientStateMachine(TLS13StateMachine):
             msg_bytes = self._receive()
             content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
             if content_type == tls_constants.APPLICATION_TYPE:
-                msg_type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(
-                    msg_bytes)
+                msg_type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(msg_bytes)
                 try:
                     if (msg_type == tls_constants.HANDSHAKE_TYPE):
                         self.handshake.tls_13_process_enc_ext(ptxt_msg)
                     else:
-                        raise RuntimeError(
-                            f'Unexpected Message Type {msg_type} {ptxt_msg}')
+                        raise RuntimeError(f'Unexpected Message Type {msg_type} {ptxt_msg}')
                 except InvalidMessageStructureError as error:
                     raise error
-                self.state = ClientState.WAIT_CERT_CR
+                if self.handshake.selected_identity is None:
+                    self.state = ClientState.WAIT_CERT_CR
+                else:
+                    self.state = ClientState.WAIT_FINISHED
             elif content_type == tls_constants.ALERT_TYPE:
                 pass
             elif content_type == tls_constants.CHANGE_TYPE:
@@ -395,8 +390,7 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                         self.handshake.tls_13_process_finished(ptxt_msg)
 
                         fin_msg = self.handshake.tls_13_finished()
-                        self._send(self.send_hs_enc_connect.enc_packet(
-                            fin_msg, tls_constants.HANDSHAKE_TYPE))
+                        self._send(self.send_hs_enc_connect.enc_packet(fin_msg, tls_constants.HANDSHAKE_TYPE))
                     else:
                         raise RuntimeError('Unexpected Message Type')
                 except InvalidMessageStructureError as error:
@@ -422,25 +416,21 @@ class TLS13ClientStateMachine(TLS13StateMachine):
         elif self.state == ClientState.CONNECTED:
             if write is None:
                 msg_bytes = self._receive()
-                content_type, msg = tls_record_layer.read_TLSPlaintext(
-                    msg_bytes)
+                content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
                 print(f"received with {content_type}")
                 if content_type == tls_constants.APPLICATION_TYPE:
                     msg_type, ptxt = self.recv_ap_enc_connect.dec_packet(msg_bytes)
                     if msg_type == tls_constants.APPLICATION_TYPE:
                         return msg_type, ptxt
+                    # Custom elif clause for PSK
                     elif msg_type == tls_constants.HANDSHAKE_TYPE:
-                        pass
+                        psk_dict = self.handshake.tls_13_client_parse_new_session_ticket(ptxt)
+                        self.psks.append(psk_dict)
+                        return msg_type, None
                     elif msg_type == tls_constants.ALERT_TYPE:
                         pass
                     else:
                         pass
-                # Custom elif clause for PSK
-                elif content_type == tls_constants.HANDSHAKE_TYPE:
-                    psk_dict = self.handshake.tls_13_client_parse_new_session_ticket(msg)
-                    self.psks.append(psk_dict)
-                    # TODO check if this is the right way
-                    return content_type, None
                 else:
                     pass
             else:
@@ -449,7 +439,7 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                 self._send(ctxt)
         else:
             pass
-        return None
+        return None, None
 
     def connected(self) -> bool:
         return self.state == ClientState.CONNECTED
