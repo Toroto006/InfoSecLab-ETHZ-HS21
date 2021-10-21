@@ -214,7 +214,8 @@ class Handshake:
             curr_ext_pos = curr_ext_pos + ext_len
             # Move it out to be extended for the psk handshake
             key, value = self._tls_13_server_get_remote_extensions_switch(ext_type, ext_bytes)
-            remote_extensions[key] = value
+            if key is not None:
+                remote_extensions[key] = value
         return remote_extensions
 
     def _tls_13_server_select_parameters_supported(self, remote_extensions: Dict[str, bytes]):
