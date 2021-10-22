@@ -16,8 +16,8 @@ from tls_application import TLSConnection
 def server_socket():
     server_static_enc_key = get_random_bytes(ChaCha20_Poly1305.key_size)
     s_socket = socket.socket()
-    host = socket.gethostname()
-    #host = "10.5.214.101"
+    #host = socket.gethostname()
+    host = "127.0.0.1"
     port = 1189
     # The next setting allows us to reuse the port if still bound
     # By a previous run of the server

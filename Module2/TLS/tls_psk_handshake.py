@@ -74,7 +74,11 @@ class PSKHandshake(Handshake):
             # k = self.server_static_enc_key
             # N = ticket_nonce
             # ad = ""
-        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, tls_constants.SHA_256_LEN)
+        if (self.csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
+            hash_len = tls_constants.SHA_256_LEN
+        if (self.csuite == tls_constants.TLS_AES_256_GCM_SHA384):
+            hash_len = tls_constants.SHA_384_LEN
+        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, hash_len)
         # ptxt = PSK ticket_add_age ticket_lifetime self.csuite
         plaintext = psk + age_add + lifetime + self.csuite.to_bytes(2, 'big') # csuite conversion correct?
         cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonce=ticket_nonce)
@@ -126,18 +130,23 @@ class PSKHandshake(Handshake):
         if cur_pos != len(nst):
             raise InvalidMessageStructureError()
         # parse the ticket
-        t_cur_pos = 0
-        nonce = ticket[t_cur_pos:t_cur_pos+nonce_len]
-        t_cur_pos += nonce_len
+        #t_cur_pos = 0
+        #nonce = ticket[t_cur_pos:t_cur_pos+nonce_len]
+        #t_cur_pos += nonce_len
         #if nonce != ticket_nonce: # Ticket nonce is not the same nonce!
         #    raise InvalidMessageStructureError()
-        ctxt = ticket[t_cur_pos:t_cur_pos+42]
-        t_cur_pos += 42 # 42 = 32 sha + 4 + 4 + 2
-        mac_tag = ticket[t_cur_pos:t_cur_pos+tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]]
-        t_cur_pos += tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]
-        if t_cur_pos != len(ticket):
-            raise InvalidMessageStructureError()
-        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, tls_constants.SHA_256_LEN)
+        #ctxt = ticket[t_cur_pos:t_cur_pos+42]
+        #t_cur_pos += 42 # 42 = 32 sha + 4 + 4 + 2
+        #mac_tag = ticket[t_cur_pos:t_cur_pos+tls_constants.MAC_LEN[self.csuite]]
+        #t_cur_pos += tls_constants.MAC_LEN[self.csuite]
+        #if t_cur_pos != len(ticket):
+        #    raise InvalidMessageStructureError()
+
+        if (self.csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
+            hash_len = tls_constants.SHA_256_LEN
+        if (self.csuite == tls_constants.TLS_AES_256_GCM_SHA384):
+            hash_len = tls_constants.SHA_384_LEN
+        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, hash_len)
         #print(f"Client psk: {psk.hex()}")
         # extract max data from extension
         ext_type = int.from_bytes(extensions[0:2], 'big')
@@ -232,12 +241,10 @@ class PSKHandshake(Handshake):
 
             # Calculate expected binders size
             csuite = psk['csuite']
-            if csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            if (csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
                 hash_len = tls_constants.SHA_256_LEN
-            if csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            if (csuite == tls_constants.TLS_AES_256_GCM_SHA384):
                 hash_len = tls_constants.SHA_384_LEN
-            if csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
-                hash_len = tls_constants.SHA_256_LEN
             binders_size += hash_len+1 # the plus once for the size of PskBinderEntry that is 1B
         
         assert 33 <= binders_size <= 2**16-1
@@ -267,12 +274,10 @@ class PSKHandshake(Handshake):
             transcript = hs_msg_type + len_msg + msg
             
             csuite = psk['csuite']
-            if csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            if (csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
                 hash_len = tls_constants.SHA_256_LEN
-            if csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            if (csuite == tls_constants.TLS_AES_256_GCM_SHA384):
                 hash_len = tls_constants.SHA_384_LEN
-            if csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
-                hash_len = tls_constants.SHA_256_LEN
             # PskBinderEntry is computed as the Finished message, but with the BaseKey being the binder_key included in the PSK dictionary.
             base_key = psk['binder key']
             finished_key = tls_crypto.hkdf_expand_label(csuite, base_key, b"finished", b"", hash_len)
@@ -333,27 +338,23 @@ class PSKHandshake(Handshake):
 
         if cur_ident_pos != len(identities) or cur_binder_pos != len(binders) or len(binder_list) != len(identity_list): # Sanity check
             raise InvalidMessageStructureError()
+
         if len(identity_list) > 0:
             # There is a PSK, accept always early data
             self.accept_early_data = True
         # As we now have all identities and binders, lets do the checks
         for i, ((ticket, obfuscated_ticket_age), binder) in enumerate(zip(identity_list, binder_list)):
             mac_len = tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]
-            hash_len = tls_constants.SHA_256_LEN
-            #assert len(ticket) == 8 + 42 + mac_len
-            # opaque ticket<1..2^16-1>;
-                # chosen_cipher CHACHA20_POLY1305_SHA256
-                # k = self.server_static_enc_key
-                # N = ticket_nonce
-                # ad = ""
-            # ptxt = PSK ticket_add_age ticket_lifetime self.csuite
-            #cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonceticket_nonce)
-            # cipher.update(ad) # no update as empty?
+            if (self.csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
+                hash_len = tls_constants.SHA_256_LEN
+            if (self.csuite == tls_constants.TLS_AES_256_GCM_SHA384):
+                hash_len = tls_constants.SHA_384_LEN
+            assert len(ticket) == 8 + hash_len + 4 + 4 + 2 + mac_len
             cur_pos = 0
             ticket_nonce = ticket[cur_pos:cur_pos+8]
             cur_pos += 8
-            ctxt = ticket[cur_pos:cur_pos+42]
-            cur_pos += 42
+            ctxt = ticket[cur_pos:cur_pos+hash_len + 4 + 4 + 2]
+            cur_pos += hash_len + 4 + 4 + 2
             mac_tag = ticket[cur_pos:cur_pos+mac_len]
             cur_pos += mac_len
             if cur_pos != len(ticket):
@@ -361,6 +362,8 @@ class PSKHandshake(Handshake):
 
             cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonce=ticket_nonce) # Where from ticket_nonce???
             plaintext = cipher.decrypt_and_verify(ctxt, mac_tag)
+            # get first csuite to know how long psk is
+            csuite = int.from_bytes(plaintext[-2:], 'big')
             #plaintext = psk + age_add + lifetime + self.csuite.to_bytes(2, 'big') # csuite conversion correct?
             ptxt_cur_pos = 0
             ptxt_psk = plaintext[ptxt_cur_pos:ptxt_cur_pos+hash_len]
@@ -369,8 +372,7 @@ class PSKHandshake(Handshake):
             ptxt_cur_pos += 4
             lifetime = int.from_bytes(plaintext[ptxt_cur_pos:ptxt_cur_pos+4], 'big')
             ptxt_cur_pos += 4
-            csuite = int.from_bytes(plaintext[ptxt_cur_pos:ptxt_cur_pos+2], 'big')
-            ptxt_cur_pos += 2
+            ptxt_cur_pos += 2 # for the csuite we already read
             # Disregard as too old
             actual_age = (obfuscated_ticket_age - age_add) % 2**32
             if actual_age > lifetime and i == 0:
@@ -380,6 +382,7 @@ class PSKHandshake(Handshake):
             if ptxt_cur_pos != len(plaintext):
                 raise InvalidMessageStructureError()
             if csuite != self.csuite:
+                print("Csuite mismatch")
                 continue
 
             # Use PSK to calculate binder key
@@ -391,7 +394,6 @@ class PSKHandshake(Handshake):
             binders_len_len_plus_len = 2 + binders_len
             truncated_transcript = self.transcript[:-binders_len_len_plus_len]
             transcript_hash = tls_crypto.tls_transcript_hash(csuite, truncated_transcript)
-            #print(f"Server finished_key: {finished_key.hex()}")
             try:
                 tls_crypto.tls_finished_mac_verify(self.csuite, finished_key, transcript_hash, binder)
             except ValueError:
@@ -509,8 +511,8 @@ class PSKHandshake(Handshake):
         
     def tls_13_server_enc_ext(self) -> bytes:
         if self.accept_early_data:
-            msg = 0x0001.to_bytes(2, 'big') + \
-                tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
+            msg = tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
+            msg = len(msg).to_bytes(2, 'big')+msg
         else:
             msg = 0x0000.to_bytes(2, 'big')
         enc_ext_msg = self.attach_handshake_header(tls_constants.ENEXT_TYPE, msg)
@@ -547,9 +549,8 @@ class PSKHandshake(Handshake):
             return 'psk mode', ext_bytes
         # 0-RTT maybe?
         if ext_type == tls_constants.EARLY_DATA_TYPE:
-            print(f"Server read EarlyDataIndication")
             return "0RTT", None
-        print(f"{self.role} got {ext_type} as an extension, but now known")
+        #print(f"{self.role} got {ext_type} as an extension, but now known")
         return None, None
 
     def tls_13_server_get_remote_extensions(self) -> Dict[str, bytes]:

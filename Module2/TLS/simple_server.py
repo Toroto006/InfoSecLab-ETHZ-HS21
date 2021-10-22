@@ -13,7 +13,8 @@ from tls_application import TLSConnection
 
 def server_socket():
     s_socket = socket.socket()
-    host = socket.gethostname()
+    #host = socket.gethostname()
+    host = "127.0.0.1"
     port = 1189
     # The next setting allows us to reuse the port if still bound
     # By a previous run of the server
