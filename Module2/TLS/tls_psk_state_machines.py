@@ -217,7 +217,8 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                 if msg_type == tls_constants.APPLICATION_TYPE:
                     # we got the ealry data
                     self.client_early_data += ptxt
-                elif msg_type == tls_constants.EOED_TYPE:
+                elif msg_type == tls_constants.HANDSHAKE_TYPE:
+                    self.handshake.tls_13_server_check_eoed(ptxt)
                     self.state = ServerState.WAIT_FINISHED
                 else:
                     print(f"{self.role} did not get a EOED or APPLICATION in WAIT_EOED but a {msg_type}")
@@ -298,7 +299,8 @@ class TLS13ClientStateMachine(TLS13StateMachine):
             msg = send_enc_connect.enc_packet(early_data, tls_constants.APPLICATION_TYPE)
             self._send(msg)
             # Prepare the finish message, as it has the same encryption keys
-            self.eoed_msg = send_enc_connect.enc_packet(b"", tls_constants.EOED_TYPE)
+            eoed_prep = self.handshake.tls_13_client_prepare_eoed()
+            self.eoed_msg = send_enc_connect.enc_packet(eoed_prep, tls_constants.HANDSHAKE_TYPE)
 
     def transition(self, write: bytes = None):
         if self.state == ClientState.START:
@@ -408,13 +410,12 @@ class TLS13ClientStateMachine(TLS13StateMachine):
         elif self.state == ClientState.WAIT_FINISHED:
             msg_bytes = self._receive()
             # Send the finish message
-            if self.eoed_msg is not None:
+            if self.handshake.accept_early_data:
                 self._send(self.eoed_msg)
             # Now do the rest?
             content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
             if content_type == tls_constants.APPLICATION_TYPE:
-                msg_type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(
-                    msg_bytes)
+                msg_type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(msg_bytes)
                 try:
                     if msg_type == tls_constants.HANDSHAKE_TYPE:
                         self.handshake.tls_13_process_finished(ptxt_msg)

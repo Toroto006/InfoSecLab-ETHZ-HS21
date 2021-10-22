@@ -11,8 +11,9 @@ from tls_application import TLSConnection
 
 def client_socket():
     s = socket.socket()
-    host = socket.gethostname()
-    #host = '10.5.33.23'
+    #host = socket.gethostname()
+    #host = '10.5.214.213'
+    host = '127.0.0.1'
     port = 1189
     s.connect((host, port))
     client = TLSConnection(s)
@@ -44,6 +45,16 @@ def client_socket():
     client = TLSConnection(s)
     client.connect(use_psk=True, psks=psks, psk_modes=[0,1],
                    early_data='early data'.encode())
+    client.write(msg2.encode())
+    msg = client.read()
+    print(msg.decode('utf-8'))
+    s.close()
+    # Another try
+    s = socket.socket()
+    s.connect((host, port))
+    client = TLSConnection(s)
+    client.connect(use_psk=True, psks=psks, psk_modes=[0,1],
+                   early_data='last early data'.encode())
     client.write(msg2.encode())
     msg = client.read()
     print(msg.decode('utf-8'))

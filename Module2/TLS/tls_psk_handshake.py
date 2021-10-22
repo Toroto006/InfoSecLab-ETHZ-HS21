@@ -58,6 +58,7 @@ class PSKHandshake(Handshake):
         self.client_early_data = None
         self.get_time = timer
         self.get_random_bytes = get_random_bytes
+        self.eoed_msg = None
 
     def tls_13_server_new_session_ticket(self) -> bytes:
         # struct {
@@ -431,13 +432,11 @@ class PSKHandshake(Handshake):
             self.csuite, self.transcript)
         finished_key = tls_crypto.tls_finished_key_derive(
             self.csuite, self.server_hs_traffic_secret)
-        tag = tls_crypto.tls_finished_mac(
-            self.csuite, finished_key, transcript_hash)
+        tag = tls_crypto.tls_finished_mac(self.csuite, finished_key, transcript_hash)
         fin_msg = self.attach_handshake_header(tls_constants.FINI_TYPE, tag)
         self.transcript = self.transcript + fin_msg
         if self.role == tls_constants.SERVER_FLAG:
-            transcript_hash = tls_crypto.tls_transcript_hash(
-                self.csuite, self.transcript)
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
             self.server_ap_traffic_secret = tls_crypto.tls_derive_secret(
                 self.csuite, self.master_secret, "s ap traffic".encode(), transcript_hash)
             self.client_ap_traffic_secret = tls_crypto.tls_derive_secret(
@@ -453,10 +452,30 @@ class PSKHandshake(Handshake):
         return fin_msg
 
     def tls_13_process_finished(self, fin_msg: bytes):
-        super().tls_13_process_finished(fin_msg)
+        finished = self.process_handshake_header(tls_constants.FINI_TYPE, fin_msg)
+        if self.csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            mac_len = tls_constants.SHA_256_LEN
+        if self.csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            mac_len = tls_constants.SHA_384_LEN
+        if self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
+            mac_len = tls_constants.SHA_256_LEN
+        if len(finished) != mac_len:
+            raise WrongLengthError()
+        finished_key = tls_crypto.hkdf_expand_label(self.csuite, self.server_hs_traffic_secret, b"finished", b"", mac_len)
+        #tls_crypto.tls_finished_key_derive(self.csuite, ) # the server hs might be wrong
+        transcript = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        tls_crypto.tls_finished_mac_verify(self.csuite, finished_key, transcript, finished)
+        self.transcript += fin_msg
+        if self.role == tls_constants.CLIENT_FLAG:
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+            self.server_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "s ap traffic".encode(), transcript_hash)
+            self.client_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "c ap traffic".encode(), transcript_hash)
+            if self.eoed_msg is not None:
+                self.transcript = self.transcript + self.eoed_msg
         if self.role == tls_constants.SERVER_FLAG:
             transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
-            #print(f"{self.role} fin_msg {fin_msg.hex()}")
             self.resumption_master_secret = tls_crypto.tls_derive_secret(
                 self.csuite, self.master_secret, "res master".encode(), transcript_hash)
 
@@ -468,6 +487,15 @@ class PSKHandshake(Handshake):
             if len(self.early_data) > self.offered_psks[0]['max_data']:
                 raise WrongLengthError()
             return self.early_data
+
+    def tls_13_server_check_eoed(self, ptxt):
+        self.transcript = self.transcript + ptxt
+        self.process_handshake_header(tls_constants.EOED_TYPE, ptxt)
+
+    def tls_13_client_prepare_eoed(self):
+        eoed_msg = self.attach_handshake_header(tls_constants.EOED_TYPE, b"")
+        self.eoed_msg = eoed_msg
+        return eoed_msg
 
     def tls_13_early_data_secrets(self) -> bytes:
         if self.offered_psks is not None:
@@ -481,7 +509,8 @@ class PSKHandshake(Handshake):
         
     def tls_13_server_enc_ext(self) -> bytes:
         if self.accept_early_data:
-            msg = tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
+            msg = 0x0001.to_bytes(2, 'big') + \
+                tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
         else:
             msg = 0x0000.to_bytes(2, 'big')
         enc_ext_msg = self.attach_handshake_header(tls_constants.ENEXT_TYPE, msg)
@@ -493,7 +522,8 @@ class PSKHandshake(Handshake):
         self.transcript = self.transcript + enc_ext_msg
         if len(enc_ext) < 2:
             raise InvalidMessageStructureError()
-        if int.from_bytes(enc_ext[0:2], 'big') == tls_constants.EARLY_DATA_TYPE:
+        enc_ext_len = int.from_bytes(enc_ext[0:2], 'big')
+        if enc_ext_len > 0 and int.from_bytes(enc_ext[2:4], 'big') == tls_constants.EARLY_DATA_TYPE:
             self.accept_early_data = True
             return True # say there was an EarlyDataIndication
         if enc_ext != 0x0000.to_bytes(2, 'big'):
