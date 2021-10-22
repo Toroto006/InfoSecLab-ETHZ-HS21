@@ -332,7 +332,9 @@ class PSKHandshake(Handshake):
 
         if cur_ident_pos != len(identities) or cur_binder_pos != len(binders) or len(binder_list) != len(identity_list): # Sanity check
             raise InvalidMessageStructureError()
-
+        if len(identity_list) > 0:
+            # There is a PSK, accept always early data
+            self.accept_early_data = True
         # As we now have all identities and binders, lets do the checks
         for i, ((ticket, obfuscated_ticket_age), binder) in enumerate(zip(identity_list, binder_list)):
             mac_len = tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]
@@ -368,10 +370,16 @@ class PSKHandshake(Handshake):
             ptxt_cur_pos += 4
             csuite = int.from_bytes(plaintext[ptxt_cur_pos:ptxt_cur_pos+2], 'big')
             ptxt_cur_pos += 2
+            # Disregard as too old
+            actual_age = (obfuscated_ticket_age - age_add) % 2**32
+            if actual_age > lifetime and i == 0:
+                # We should not accept early data in this case
+                print(f"Server found old age --> rejects early data")
+                self.accept_early_data = False
             if ptxt_cur_pos != len(plaintext):
                 raise InvalidMessageStructureError()
             if csuite != self.csuite:
-                raise NoCommonCiphersuiteError()
+                continue
 
             # Use PSK to calculate binder key
             early_secret = tls_crypto.tls_extract_secret(self.csuite, ptxt_psk, None)
@@ -400,7 +408,7 @@ class PSKHandshake(Handshake):
             extensions += psk_mode_ext
             # Add EarlyDataIndication if there is any
             if self.early_data is not None:
-                print(f"Client adding EarlyDataIndication")
+                #print(f"Client adding EarlyDataIndication")
                 extensions += tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big')
             psk_ext, self.offered_psks = self.tls_13_client_add_psk_extension(chelo, extensions)
             extensions += psk_ext
@@ -412,8 +420,7 @@ class PSKHandshake(Handshake):
         # FIRST WE NEED TO GENERATE A HANDSHAKE KEY
         if self.client_early_traffic_secret is None:
             raise StateConfusionError()
-        early_data_key, early_data_iv = tls_crypto.tls_derive_key_iv(
-            self.csuite, self.client_early_traffic_secret)
+        early_data_key, early_data_iv = tls_crypto.tls_derive_key_iv(self.csuite, self.client_early_traffic_secret)
         return early_data_key, early_data_iv, self.csuite
 
     def tls_13_eoed(self) -> bytes:
@@ -454,24 +461,29 @@ class PSKHandshake(Handshake):
                 self.csuite, self.master_secret, "res master".encode(), transcript_hash)
 
     def tls_13_early_data_ext(self, data: bytes = b'') -> bytes:
-        psk = self.offered_psks[0]['PSK'] # as defined in the labsheet lets use the first psk
-        csuite = self.offered_psks[0]['csuite'] # as defined in the labsheet lets use the first psk
-        # Derive the secrets
-        early_secret = tls_crypto.tls_extract_secret(csuite, psk, None)
-        # Is this where the client_early_traffic_secret should be calculated??
-        self.client_early_traffic_secret = tls_crypto.tls_derive_secret(csuite, \
-            early_secret, "c e traffic".encode(), self.transcript)
-        
-        # Now actually package the data in application and send
-        ed_msg = self.attach_handshake_header(tls_constants.APPLICATION_TYPE, data)
-        return ed_msg
+        raise NotImplementedError()
+
+    def tls_13_create_early_data(self):
+        if self.offered_psks is not None:
+            if len(self.early_data) > self.offered_psks[0]['max_data']:
+                raise WrongLengthError()
+            return self.early_data
+
+    def tls_13_early_data_secrets(self) -> bytes:
+        if self.offered_psks is not None:
+            psk = self.offered_psks[0]['PSK'] # as defined in the labsheet lets use the first psk
+            self.csuite = self.offered_psks[0]['csuite'] # as defined in the labsheet lets use the first psk
+            # Derive the secrets
+            early_secret = tls_crypto.tls_extract_secret(self.csuite, psk, None)
+            # Is this where the client_early_traffic_secret should be calculated??
+            self.client_early_traffic_secret = tls_crypto.tls_derive_secret(self.csuite, \
+                early_secret, "c e traffic".encode(), self.transcript)
         
     def tls_13_server_enc_ext(self) -> bytes:
         if self.accept_early_data:
             msg = tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
         else:
             msg = 0x0000.to_bytes(2, 'big')
-        print(f"Server enc ext {msg.hex()}")
         enc_ext_msg = self.attach_handshake_header(tls_constants.ENEXT_TYPE, msg)
         self.transcript = self.transcript + enc_ext_msg
         return enc_ext_msg
@@ -483,10 +495,10 @@ class PSKHandshake(Handshake):
             raise InvalidMessageStructureError()
         if int.from_bytes(enc_ext[0:2], 'big') == tls_constants.EARLY_DATA_TYPE:
             self.accept_early_data = True
-            print(f"{self.role} got EarlyDataIndication in ENEXT_TYPE")
-            return
+            return True # say there was an EarlyDataIndication
         if enc_ext != 0x0000.to_bytes(2, 'big'):
             raise InvalidMessageStructureError()
+        return False
     
     def _tls_13_server_get_remote_extensions_switch(self, ext_type, ext_bytes):
         # First the old ones
@@ -554,22 +566,20 @@ class PSKHandshake(Handshake):
         self._tls_13_server_select_parameters_supported(remote_extensions)
             # self.neg_version
             # self.neg_group
-
         self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
             # self.signature
             # self.csuite
-
         psk_type = self._tls_13_server_select_parameters_psk(remote_extensions)
             # self.psk
             # self.selected_identity
             # self.use_keyshare
+            # self.accept_early_data
 
-        # most likely 0RTT
-        if psk_type > -1 and "0RTT" in remote_extensions.keys(): # so ther is a psk value chosen
-            self.accept_early_data = True
-            print("Server accepts early data!")
+        if "0RTT" not in remote_extensions.keys():
+            # self.accept_early_data
+            self.accept_early_data = False
+        if self.accept_early_data: # so ther is a psk value chosen, the lifetime is good and we have 0RTT ext
             # self.client_early_data
-            # self.accept_early_data --> as we need to know psk type
             # Derive the secrets
             early_secret = tls_crypto.tls_extract_secret(self.csuite, self.psk, None)
             # Is this where the client_early_traffic_secret should be calculated??

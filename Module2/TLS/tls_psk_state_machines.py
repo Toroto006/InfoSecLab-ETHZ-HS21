@@ -107,6 +107,7 @@ class TLS13ServerStateMachine(TLS13StateMachine):
         # Manually added
         self.use_psk = use_psk
         self.server_static_enc_key = server_static_key
+        self.send_enc_connect = None
 
     def finish_tls_connection_server(self, client_messages: bytes):
         if self.role != tls_constants.SERVER_FLAG:
@@ -203,23 +204,16 @@ class TLS13ServerStateMachine(TLS13StateMachine):
             else:
                 self.state = ServerState.WAIT_FLIGHT2
         elif self.state == ServerState.WAIT_EOED:
-            print(f"{self.role} started EOED")
-            # save in self.client_early_data
-            # Client does:
-            # early_data_msg = self.handshake.tls_13_early_data_ext()
-            # key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
-            # send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_WRITE)
-            # msg = send_enc_connect.enc_packet(early_data_msg, tls_constants.APPLICATION_TYPE)
-            # self._send(msg)
+            # Create new keys for 0RTT first and then do the receives
             key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
-            print(f"{self.role} has {key.hex()} and {iv.hex()}")
-            send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_READ)
+            if self.send_enc_connect is None:
+                self.send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_READ)
             msg_bytes = self._receive()
             if not hasattr(self, 'client_early_data'):
                 self.client_early_data = b""
             content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
             if content_type == tls_constants.APPLICATION_TYPE:
-                msg_type, ptxt = send_enc_connect.dec_packet(msg_bytes)
+                msg_type, ptxt = self.send_enc_connect.dec_packet(msg_bytes)
                 if msg_type == tls_constants.APPLICATION_TYPE:
                     # we got the ealry data
                     self.client_early_data += ptxt
@@ -259,7 +253,6 @@ class TLS13ServerStateMachine(TLS13StateMachine):
                     nst_msg = self.handshake.tls_13_server_new_session_ticket()
                     app_msg = self.send_ap_enc_connect.enc_packet(nst_msg, tls_constants.HANDSHAKE_TYPE)
                     self._send(app_msg)
-                    print(f"Server sent new session ticket")
                 # Original
                 ctxt = self.send_enc_message(write)
                 self._send(ctxt)
@@ -283,6 +276,7 @@ class TLS13ClientStateMachine(TLS13StateMachine):
         self.psks = psks
         self.supported_psk_modes = psk_modes
         self.early_data = early_data
+        self.eoed_msg = None
 
     def begin_tls_handshake(self):
         self.handshake = PSKHandshake(tls_constants.CLIENT_SUPPORTED_CIPHERSUITES,
@@ -296,17 +290,15 @@ class TLS13ClientStateMachine(TLS13StateMachine):
         self._send(tls_client_hello)
 
     def do_early_data(self):
-        if self.early_data is not None:
-            print(f"Client do early data with {self.early_data}")
-            early_data_msg = self.handshake.tls_13_early_data_ext(self.early_data)
+        if self.early_data is not None and self.handshake.offered_psks is not None:
+            self.handshake.tls_13_early_data_secrets()
             key, iv, csuite = self.handshake.tls_13_compute_client_early_key_iv()
-            print(f"{self.role} has {key.hex()} and {iv.hex()}")
             send_enc_connect = tls_record_layer.ProtectedRecordLayer(key, iv, csuite, tls_constants.RECORD_WRITE)
-            msg = send_enc_connect.enc_packet(early_data_msg, tls_constants.APPLICATION_TYPE)
+            early_data = self.handshake.tls_13_create_early_data()
+            msg = send_enc_connect.enc_packet(early_data, tls_constants.APPLICATION_TYPE)
             self._send(msg)
-            # Send the finish message
-            msg = send_enc_connect.enc_packet(b"", tls_constants.EOED_TYPE)
-            self._send(msg)
+            # Prepare the finish message, as it has the same encryption keys
+            self.eoed_msg = send_enc_connect.enc_packet(b"", tls_constants.EOED_TYPE)
 
     def transition(self, write: bytes = None):
         if self.state == ClientState.START:
@@ -350,7 +342,9 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                 msg_type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(msg_bytes)
                 try:
                     if (msg_type == tls_constants.HANDSHAKE_TYPE):
-                        self.handshake.tls_13_process_enc_ext(ptxt_msg)
+                        early_data_indication = self.handshake.tls_13_process_enc_ext(ptxt_msg)
+                        if not early_data_indication:
+                            self.eoed_msg = None # We did not receive a EarlyDataIndication
                     else:
                         raise RuntimeError(f'Unexpected Message Type {msg_type} {ptxt_msg}')
                 except InvalidMessageStructureError as error:
@@ -413,6 +407,10 @@ class TLS13ClientStateMachine(TLS13StateMachine):
                 raise RuntimeError('Unexpected Content Type')
         elif self.state == ClientState.WAIT_FINISHED:
             msg_bytes = self._receive()
+            # Send the finish message
+            if self.eoed_msg is not None:
+                self._send(self.eoed_msg)
+            # Now do the rest?
             content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
             if content_type == tls_constants.APPLICATION_TYPE:
                 msg_type, ptxt_msg = self.recv_hs_enc_connect.dec_packet(
@@ -449,7 +447,6 @@ class TLS13ClientStateMachine(TLS13StateMachine):
             if write is None:
                 msg_bytes = self._receive()
                 content_type, msg = tls_record_layer.read_TLSPlaintext(msg_bytes)
-                print(f"received with {content_type}")
                 if content_type == tls_constants.APPLICATION_TYPE:
                     msg_type, ptxt = self.recv_ap_enc_connect.dec_packet(msg_bytes)
                     if msg_type == tls_constants.APPLICATION_TYPE:
