@@ -8,10 +8,10 @@ import select
 
 to_kill = []
 
-#path = "/home/isl/t1/"
-#node_prefix = ""
-path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task1/"
-node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
+path = "/home/isl/t1/"
+node_prefix = ""
+#path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task1/"
+#node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
 
 def cleanUp():
     for k in to_kill:
@@ -46,11 +46,12 @@ def main():
     sleep(1)
     RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
     to_kill.append(RP.pid)
-    to_write = 'set {char[42]}0x7fffffffd730 = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
+    to_write = 'set {char[42]}0x7fffffffdb70 = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
+    SP.stdin.write(b'x /s 0x7fffffffdb70\n')
     print(to_write)
     SP.stdin.write(b'c\n')
     SP.stdin.write(to_write)
-    SP.stdin.write(b'x /s 0x7fffffffd730\n')
+    SP.stdin.write(b'x /s 0x7fffffffdb70\n')
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
     sleep(2)
