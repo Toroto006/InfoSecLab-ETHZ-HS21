@@ -46,7 +46,6 @@ def main():
     SP.stdin.write(b'r\n')
     #SP.stdin.flush()
     sleep(1)
-    code.interact(local=locals())
     RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
     to_kill.append(RP.pid)
     to_write = 'set $eax = 0x8da8a1\n'.encode()
@@ -58,8 +57,6 @@ def main():
     SP.stdin.write('set $al = 0x13\n'.encode())
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
-    #code.interact(local=locals())
-    #sleep(5)
 
 if __name__ == "__main__":
     try:
