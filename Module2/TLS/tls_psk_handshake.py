@@ -58,6 +58,7 @@ class PSKHandshake(Handshake):
         self.client_early_data = None
         self.get_time = timer
         self.get_random_bytes = get_random_bytes
+        self.eoed_msg = None
 
     def tls_13_server_new_session_ticket(self) -> bytes:
         # struct {
@@ -73,7 +74,11 @@ class PSKHandshake(Handshake):
             # k = self.server_static_enc_key
             # N = ticket_nonce
             # ad = ""
-        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, tls_constants.SHA_256_LEN)
+        if (self.csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
+            hash_len = tls_constants.SHA_256_LEN
+        if (self.csuite == tls_constants.TLS_AES_256_GCM_SHA384):
+            hash_len = tls_constants.SHA_384_LEN
+        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, hash_len)
         # ptxt = PSK ticket_add_age ticket_lifetime self.csuite
         plaintext = psk + age_add + lifetime + self.csuite.to_bytes(2, 'big') # csuite conversion correct?
         cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonce=ticket_nonce)
@@ -125,20 +130,23 @@ class PSKHandshake(Handshake):
         if cur_pos != len(nst):
             raise InvalidMessageStructureError()
         # parse the ticket
-        t_cur_pos = 0
-        nonce = ticket[t_cur_pos:t_cur_pos+nonce_len]
-        t_cur_pos += nonce_len
+        #t_cur_pos = 0
+        #nonce = ticket[t_cur_pos:t_cur_pos+nonce_len]
+        #t_cur_pos += nonce_len
         #if nonce != ticket_nonce: # Ticket nonce is not the same nonce!
         #    raise InvalidMessageStructureError()
-        ctxt = ticket[t_cur_pos:t_cur_pos+42]
-        t_cur_pos += 42 # 42 = 32 sha + 4 + 4 + 2
-        mac_tag = ticket[t_cur_pos:t_cur_pos+tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]]
-        t_cur_pos += tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]
-        if t_cur_pos != len(ticket):
-            raise InvalidMessageStructureError()
-        # extract PSK --> not possible, right? As this is the servers key for early stuff, but can calculate!
-        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, tls_constants.SHA_256_LEN)
-        #print(f"Client self.resumption_master_secret: {self.resumption_master_secret.hex()}")
+        #ctxt = ticket[t_cur_pos:t_cur_pos+42]
+        #t_cur_pos += 42 # 42 = 32 sha + 4 + 4 + 2
+        #mac_tag = ticket[t_cur_pos:t_cur_pos+tls_constants.MAC_LEN[self.csuite]]
+        #t_cur_pos += tls_constants.MAC_LEN[self.csuite]
+        #if t_cur_pos != len(ticket):
+        #    raise InvalidMessageStructureError()
+
+        if (self.csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
+            hash_len = tls_constants.SHA_256_LEN
+        if (self.csuite == tls_constants.TLS_AES_256_GCM_SHA384):
+            hash_len = tls_constants.SHA_384_LEN
+        psk = tls_crypto.hkdf_expand_label(self.csuite, self.resumption_master_secret, b"resumption", ticket_nonce, hash_len)
         #print(f"Client psk: {psk.hex()}")
         # extract max data from extension
         ext_type = int.from_bytes(extensions[0:2], 'big')
@@ -221,7 +229,7 @@ class PSKHandshake(Handshake):
         for psk in psks_offered:
             identity = len(psk['ticket']).to_bytes(2, 'big') + psk['ticket'] # psk['ticket'] was defined as our identity
             # obfuscated_ticket_age is a representation of the ticket age added to the “lifetime_add” value saved in the PSK dictionary, modulo 2**32
-            ticket_age = fct_enter_time - psk['arrival'] # TODO correct calculation?
+            ticket_age = fct_enter_time - psk['arrival']
             lifetime = psk['lifetime'] * 1000
             obfuscated_ticket_age = (psk['lifetime_add']+ticket_age)%(2**32)
             # struct {
@@ -233,12 +241,10 @@ class PSKHandshake(Handshake):
 
             # Calculate expected binders size
             csuite = psk['csuite']
-            if csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            if (csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
                 hash_len = tls_constants.SHA_256_LEN
-            if csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            if (csuite == tls_constants.TLS_AES_256_GCM_SHA384):
                 hash_len = tls_constants.SHA_384_LEN
-            if csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
-                hash_len = tls_constants.SHA_256_LEN
             binders_size += hash_len+1 # the plus once for the size of PskBinderEntry that is 1B
         
         assert 33 <= binders_size <= 2**16-1
@@ -268,12 +274,10 @@ class PSKHandshake(Handshake):
             transcript = hs_msg_type + len_msg + msg
             
             csuite = psk['csuite']
-            if csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            if (csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
                 hash_len = tls_constants.SHA_256_LEN
-            if csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            if (csuite == tls_constants.TLS_AES_256_GCM_SHA384):
                 hash_len = tls_constants.SHA_384_LEN
-            if csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
-                hash_len = tls_constants.SHA_256_LEN
             # PskBinderEntry is computed as the Finished message, but with the BaseKey being the binder_key included in the PSK dictionary.
             base_key = psk['binder key']
             finished_key = tls_crypto.hkdf_expand_label(csuite, base_key, b"finished", b"", hash_len)
@@ -281,7 +285,7 @@ class PSKHandshake(Handshake):
             binder_tag = tls_crypto.tls_finished_mac(csuite, finished_key, transcript_hash)
             psk_binder_entry = len(binder_tag).to_bytes(1, 'big') + binder_tag # size correct
             #print(f"Client binder key: {base_key.hex()}")
-            #print(f"Client finished_key: {finished_key.hex()}")
+            # print(f"Client transcript_hash: {transcript_hash.hex()}")
             binders_list.append(psk_binder_entry)
 
         binders = b''.join(binders_list) # concat all binders
@@ -335,25 +339,22 @@ class PSKHandshake(Handshake):
         if cur_ident_pos != len(identities) or cur_binder_pos != len(binders) or len(binder_list) != len(identity_list): # Sanity check
             raise InvalidMessageStructureError()
 
+        if len(identity_list) > 0:
+            # There is a PSK, accept always early data
+            self.accept_early_data = True
         # As we now have all identities and binders, lets do the checks
         for i, ((ticket, obfuscated_ticket_age), binder) in enumerate(zip(identity_list, binder_list)):
             mac_len = tls_constants.MAC_LEN[tls_constants.TLS_CHACHA20_POLY1305_SHA256]
-            hash_len = tls_constants.SHA_256_LEN
-            #assert len(ticket) == 8 + 42 + mac_len
-            # opaque ticket<1..2^16-1>;
-                # chosen_cipher CHACHA20_POLY1305_SHA256
-                # k = self.server_static_enc_key
-                # N = ticket_nonce
-                # ad = ""
-            # ptxt = PSK ticket_add_age ticket_lifetime self.csuite
-            #cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonceticket_nonce)
-            # cipher.update(ad) # no update as empty?
-            #ticket = self.get_random_bytes(8) + ctxt + mac_tag # TODO new nonce???
+            if (self.csuite == tls_constants.TLS_AES_128_GCM_SHA256) or (self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256):
+                hash_len = tls_constants.SHA_256_LEN
+            if (self.csuite == tls_constants.TLS_AES_256_GCM_SHA384):
+                hash_len = tls_constants.SHA_384_LEN
+            assert len(ticket) == 8 + hash_len + 4 + 4 + 2 + mac_len
             cur_pos = 0
             ticket_nonce = ticket[cur_pos:cur_pos+8]
             cur_pos += 8
-            ctxt = ticket[cur_pos:cur_pos+42]
-            cur_pos += 42
+            ctxt = ticket[cur_pos:cur_pos+hash_len + 4 + 4 + 2]
+            cur_pos += hash_len + 4 + 4 + 2
             mac_tag = ticket[cur_pos:cur_pos+mac_len]
             cur_pos += mac_len
             if cur_pos != len(ticket):
@@ -361,6 +362,8 @@ class PSKHandshake(Handshake):
 
             cipher = ChaCha20_Poly1305.new(key=self.server_static_enc_key, nonce=ticket_nonce) # Where from ticket_nonce???
             plaintext = cipher.decrypt_and_verify(ctxt, mac_tag)
+            # get first csuite to know how long psk is
+            csuite = int.from_bytes(plaintext[-2:], 'big')
             #plaintext = psk + age_add + lifetime + self.csuite.to_bytes(2, 'big') # csuite conversion correct?
             ptxt_cur_pos = 0
             ptxt_psk = plaintext[ptxt_cur_pos:ptxt_cur_pos+hash_len]
@@ -369,12 +372,18 @@ class PSKHandshake(Handshake):
             ptxt_cur_pos += 4
             lifetime = int.from_bytes(plaintext[ptxt_cur_pos:ptxt_cur_pos+4], 'big')
             ptxt_cur_pos += 4
-            csuite = int.from_bytes(plaintext[ptxt_cur_pos:ptxt_cur_pos+2], 'big')
-            ptxt_cur_pos += 2
+            ptxt_cur_pos += 2 # for the csuite we already read
+            # Disregard as too old
+            actual_age = (obfuscated_ticket_age - age_add) % 2**32
+            if actual_age > lifetime and i == 0:
+                # We should not accept early data in this case
+                print(f"Server found old age --> rejects early data")
+                self.accept_early_data = False
             if ptxt_cur_pos != len(plaintext):
                 raise InvalidMessageStructureError()
             if csuite != self.csuite:
-                raise NoCommonCiphersuiteError()
+                print("Csuite mismatch")
+                continue
 
             # Use PSK to calculate binder key
             early_secret = tls_crypto.tls_extract_secret(self.csuite, ptxt_psk, None)
@@ -385,7 +394,6 @@ class PSKHandshake(Handshake):
             binders_len_len_plus_len = 2 + binders_len
             truncated_transcript = self.transcript[:-binders_len_len_plus_len]
             transcript_hash = tls_crypto.tls_transcript_hash(csuite, truncated_transcript)
-            #print(f"Server finished_key: {finished_key.hex()}")
             try:
                 tls_crypto.tls_finished_mac_verify(self.csuite, finished_key, transcript_hash, binder)
             except ValueError:
@@ -401,46 +409,128 @@ class PSKHandshake(Handshake):
             # Extend by PSK if we have any
             psk_mode_ext = self.tls_13_client_prep_psk_mode_extension()
             extensions += psk_mode_ext
+            # Add EarlyDataIndication if there is any
+            if self.early_data is not None:
+                #print(f"Client adding EarlyDataIndication")
+                extensions += tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big')
             psk_ext, self.offered_psks = self.tls_13_client_add_psk_extension(chelo, extensions)
             extensions += psk_ext
         ext_len = len(extensions).to_bytes(tls_constants.EXT_LEN_LEN, byteorder='big')
         client_hello = chelo + ext_len + extensions
         return self._tls_13_client_hello_finish_off(client_hello)
-
+    
     def tls_13_compute_client_early_key_iv(self) -> Tuple[bytes, bytes, int]:
         # FIRST WE NEED TO GENERATE A HANDSHAKE KEY
         if self.client_early_traffic_secret is None:
             raise StateConfusionError()
-        early_data_key, early_data_iv = tls_crypto.tls_derive_key_iv(
-            self.csuite, self.client_early_traffic_secret)
+        early_data_key, early_data_iv = tls_crypto.tls_derive_key_iv(self.csuite, self.client_early_traffic_secret)
         return early_data_key, early_data_iv, self.csuite
 
     def tls_13_eoed(self) -> bytes:
         return self.attach_handshake_header(tls_constants.EOED_TYPE, b'')
 
     def tls_13_finished(self) -> bytes:
-        return super().tls_13_finished()
+        transcript_hash = tls_crypto.tls_transcript_hash(
+            self.csuite, self.transcript)
+        finished_key = tls_crypto.tls_finished_key_derive(
+            self.csuite, self.server_hs_traffic_secret)
+        tag = tls_crypto.tls_finished_mac(self.csuite, finished_key, transcript_hash)
+        fin_msg = self.attach_handshake_header(tls_constants.FINI_TYPE, tag)
+        self.transcript = self.transcript + fin_msg
+        if self.role == tls_constants.SERVER_FLAG:
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+            self.server_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "s ap traffic".encode(), transcript_hash)
+            self.client_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "c ap traffic".encode(), transcript_hash)
+        
+        # Calculate the new resumption_master_secret 
+        if self.role == tls_constants.CLIENT_FLAG:
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+            #print(f"{self.role} fin_msg {fin_msg.hex()}")
+            self.resumption_master_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "res master".encode(), transcript_hash)
+        
+        return fin_msg
 
     def tls_13_process_finished(self, fin_msg: bytes):
-        # Calculate the new resumption_master_secret 
+        finished = self.process_handshake_header(tls_constants.FINI_TYPE, fin_msg)
+        if self.csuite == tls_constants.TLS_AES_128_GCM_SHA256:
+            mac_len = tls_constants.SHA_256_LEN
+        if self.csuite == tls_constants.TLS_AES_256_GCM_SHA384:
+            mac_len = tls_constants.SHA_384_LEN
+        if self.csuite == tls_constants.TLS_CHACHA20_POLY1305_SHA256:
+            mac_len = tls_constants.SHA_256_LEN
+        if len(finished) != mac_len:
+            raise WrongLengthError()
+        finished_key = tls_crypto.hkdf_expand_label(self.csuite, self.server_hs_traffic_secret, b"finished", b"", mac_len)
+        #tls_crypto.tls_finished_key_derive(self.csuite, ) # the server hs might be wrong
+        transcript = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+        tls_crypto.tls_finished_mac_verify(self.csuite, finished_key, transcript, finished)
+        self.transcript += fin_msg
+        if self.role == tls_constants.CLIENT_FLAG:
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+            self.server_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "s ap traffic".encode(), transcript_hash)
+            self.client_ap_traffic_secret = tls_crypto.tls_derive_secret(
+                self.csuite, self.master_secret, "c ap traffic".encode(), transcript_hash)
+            if self.eoed_msg is not None:
+                self.transcript = self.transcript + self.eoed_msg
         if self.role == tls_constants.SERVER_FLAG:
-            transcript = self.transcript
-        else:
-            transcript = self.transcript + fin_msg
-        transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, transcript)
-        # as self.transcript has the fin_msg already
-        self.resumption_master_secret = tls_crypto.tls_derive_secret(
+            transcript_hash = tls_crypto.tls_transcript_hash(self.csuite, self.transcript)
+            self.resumption_master_secret = tls_crypto.tls_derive_secret(
                 self.csuite, self.master_secret, "res master".encode(), transcript_hash)
-        super().tls_13_process_finished(fin_msg)
 
     def tls_13_early_data_ext(self, data: bytes = b'') -> bytes:
         raise NotImplementedError()
+
+    def tls_13_create_early_data(self):
+        if self.offered_psks is not None:
+            if len(self.early_data) > self.offered_psks[0]['max_data']:
+                raise WrongLengthError()
+            return self.early_data
+
+    def tls_13_server_check_eoed(self, ptxt):
+        self.transcript = self.transcript + ptxt
+        self.process_handshake_header(tls_constants.EOED_TYPE, ptxt)
+
+    def tls_13_client_prepare_eoed(self):
+        eoed_msg = self.attach_handshake_header(tls_constants.EOED_TYPE, b"")
+        self.eoed_msg = eoed_msg
+        return eoed_msg
+
+    def tls_13_early_data_secrets(self) -> bytes:
+        if self.offered_psks is not None:
+            psk = self.offered_psks[0]['PSK'] # as defined in the labsheet lets use the first psk
+            self.csuite = self.offered_psks[0]['csuite'] # as defined in the labsheet lets use the first psk
+            # Derive the secrets
+            early_secret = tls_crypto.tls_extract_secret(self.csuite, psk, None)
+            # Is this where the client_early_traffic_secret should be calculated??
+            self.client_early_traffic_secret = tls_crypto.tls_derive_secret(self.csuite, \
+                early_secret, "c e traffic".encode(), self.transcript)
         
     def tls_13_server_enc_ext(self) -> bytes:
-        return super().tls_13_server_enc_ext()
+        if self.accept_early_data:
+            msg = tls_constants.EARLY_DATA_TYPE.to_bytes(2, 'big') + 0x0000.to_bytes(2, 'big') # Empty extension
+            msg = len(msg).to_bytes(2, 'big')+msg
+        else:
+            msg = 0x0000.to_bytes(2, 'big')
+        enc_ext_msg = self.attach_handshake_header(tls_constants.ENEXT_TYPE, msg)
+        self.transcript = self.transcript + enc_ext_msg
+        return enc_ext_msg
         
     def tls_13_process_enc_ext(self, enc_ext_msg: bytes):
-        super().tls_13_process_enc_ext(enc_ext_msg)
+        enc_ext = self.process_handshake_header(tls_constants.ENEXT_TYPE, enc_ext_msg)
+        self.transcript = self.transcript + enc_ext_msg
+        if len(enc_ext) < 2:
+            raise InvalidMessageStructureError()
+        enc_ext_len = int.from_bytes(enc_ext[0:2], 'big')
+        if enc_ext_len > 0 and int.from_bytes(enc_ext[2:4], 'big') == tls_constants.EARLY_DATA_TYPE:
+            self.accept_early_data = True
+            return True # say there was an EarlyDataIndication
+        if enc_ext != 0x0000.to_bytes(2, 'big'):
+            raise InvalidMessageStructureError()
+        return False
     
     def _tls_13_server_get_remote_extensions_switch(self, ext_type, ext_bytes):
         # First the old ones
@@ -457,11 +547,15 @@ class PSKHandshake(Handshake):
             return 'psk', ext_bytes
         if ext_type == tls_constants.PSK_KEX_MODE_TYPE:
             return 'psk mode', ext_bytes
+        # 0-RTT maybe?
+        if ext_type == tls_constants.EARLY_DATA_TYPE:
+            return "0RTT", None
+        #print(f"{self.role} got {ext_type} as an extension, but now known")
+        return None, None
 
     def tls_13_server_get_remote_extensions(self) -> Dict[str, bytes]:
         return super().tls_13_server_get_remote_extensions()
     
-    # TODO why would you take the last one? because we know for sure only two come and their order?
     def tls_13_server_parse_psk_mode_ext(self, modes_bytes: bytes) -> bytes:
         modes_len = modes_bytes[0]
         modes = modes_bytes[1:modes_len+1]
@@ -476,15 +570,24 @@ class PSKHandshake(Handshake):
             self.psk, self.selected_identity = self.tls_13_server_parse_psk_extension(remote_extensions['psk'])
             # get the mode
             psk_mode_bytes = remote_extensions["psk mode"]
+            # TODO maybe switch over
+            # self.use_keyshare = False
+            # mode = self.tls_13_server_parse_psk_mode_ext(psk_mode_bytes)
+            # psk_success = mode
+            # if mode == tls_constants.PSK_DHE_KE_MODE:
+            #     self.use_keyshare = True
+
             number_modes = int.from_bytes(psk_mode_bytes[0:1], 'big') # < ... > len def
             modes = []
             self.use_keyshare = False
             for i in range(number_modes):
                 mode = int.from_bytes(psk_mode_bytes[1+i:2+i], 'big')
+                psk_success = mode
                 if mode == tls_constants.PSK_DHE_KE_MODE:
                     #PSK_KE_MODE = 0
                     #PSK_DHE_KE_MODE = 1 --> if possible choose
                     self.use_keyshare = True
+                    return tls_constants.PSK_DHE_KE_MODE
                 modes.append(mode) # 255 is 1B each
             assert len(modes) == number_modes
         return psk_success
@@ -494,15 +597,26 @@ class PSKHandshake(Handshake):
         self._tls_13_server_select_parameters_supported(remote_extensions)
             # self.neg_version
             # self.neg_group
-
         self._tls_13_server_select_parameters_sig_csuite(remote_extensions)
             # self.signature
             # self.csuite
-
         psk_type = self._tls_13_server_select_parameters_psk(remote_extensions)
             # self.psk
             # self.selected_identity
             # self.use_keyshare
+            # self.accept_early_data
+
+        if "0RTT" not in remote_extensions.keys():
+            # self.accept_early_data
+            self.accept_early_data = False
+        if self.accept_early_data: # so ther is a psk value chosen, the lifetime is good and we have 0RTT ext
+            # self.client_early_data
+            # Derive the secrets
+            early_secret = tls_crypto.tls_extract_secret(self.csuite, self.psk, None)
+            # Is this where the client_early_traffic_secret should be calculated??
+            self.client_early_traffic_secret = tls_crypto.tls_derive_secret(self.csuite, \
+            early_secret, "c e traffic".encode(), self.transcript)
+        
         # Following would throw common group error...
         try:
             self._tls_13_server_select_parameters_dhe(remote_extensions)
@@ -513,11 +627,6 @@ class PSKHandshake(Handshake):
         except TLSError as e:
             if psk_type == tls_constants.PSK_KE_MODE: # As if psk only is a success, we do not need dhe
                 raise e
-
-            
-        # most likely 0RTT
-            # self.client_early_data
-            # self.accept_early_data
 
     def _tls_13_prep_server_hello_create_extensions(self):
         # WE ATTACH ALL OUR EXTENSIONS but to the list

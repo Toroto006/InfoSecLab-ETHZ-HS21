@@ -10,8 +10,9 @@ from tls_application import TLSConnection
 
 def client_socket():
     s = socket.socket()
-    host = socket.gethostname()
+    #host = socket.gethostname()
     #host = '18.216.1.168'
+    host = "127.0.0.1"
     port = 1189
     s.connect((host, port))
     client = TLSConnection(s)

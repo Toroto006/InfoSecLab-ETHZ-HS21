@@ -124,7 +124,6 @@ def tls_hkdf_label(label, context, length: int):
 	#x_int = int.from_bytes(x_bytes, byteorder='big', signed=False)
 	#x_bytes = x_int.to_bytes(EC_COORDINATE_LEN, byteorder='big')
 	len_bytes = length.to_bytes(2, byteorder='big')
-	# TODO check for non empty label
 	label_bytes = b"tls13 "+label
 	if not (7 <= len(label_bytes) <= 255):
 		print(f"The label for tls_hkdf_label is of the wrong size: {len(label)}")
@@ -196,8 +195,7 @@ def tls_nonce(csuite, sqn_no, iv):
 	return xord_sqn_no
 
 def tls_aead_encrypt(csuite, key, nonce, plaintext):
-	if len(plaintext) > 2**14 + 256:
-		# TODO check if this is the actual max allowed size
+	if len(plaintext) > 2**14 + 255:
 		#  the full encoded TLSInnerPlaintext MUST NOT exceed 2^14 + 1 octets
 		raise WrongLengthError(f"In tls_aead_encrypt the plaintext (size: {len(plaintext)}) is bigger than 2**14 + 256.")
 
@@ -207,7 +205,7 @@ def tls_aead_encrypt(csuite, key, nonce, plaintext):
 	if csuite == TLS_AES_256_GCM_SHA384:
 		ctxt_len = len(plaintext) # for AES the case, https://crypto.stackexchange.com/questions/26783/ciphertext-and-tag-size-and-iv-transmission-with-aes-in-gcm-mode
 	if csuite == TLS_AES_128_GCM_SHA256:
-		ctxt_len = len(plaintext) # TODO ask lucas if he also got to this result
+		ctxt_len = len(plaintext) # ask lucas if he also got to this result --> yes
 	#additional_data = TLSCiphertext.opaque_type || TLSCiphertext.legacy_record_version || TLSCiphertext.length
 	ad = APPLICATION_TYPE.to_bytes(1, byteorder='big') \
 		+ LEGACY_VERSION.to_bytes(2, byteorder='big') \
@@ -270,7 +268,6 @@ def tls_signature(signature_algorithm, msg, context_flag):
 		key = SECP384R1_KEY
 		sha = SHA384.new(message)
 		signature = DSS.new(key, 'fips-186-3').sign(sha)
-	# TODO why does this function need my tls_verify_signature?? I don't know if fips-186-3 i correct.
 	return signature
 
 def tls_verify_signature(signature_algorithm, message, context_flag, signature, public_key):
