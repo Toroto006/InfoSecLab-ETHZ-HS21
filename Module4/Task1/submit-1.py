@@ -8,10 +8,10 @@ import select
 
 to_kill = []
 
-path = "/home/isl/t1/"
-node_prefix = ""
-#path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task1/"
-#node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
+#path = "/home/isl/t1/"
+#node_prefix = ""
+path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task1/"
+node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
 
 def cleanUp():
     for k in to_kill:
@@ -36,7 +36,7 @@ def setup() -> subprocess.Popen:
     print("Setup done, let's now do the request")
     return SP
 
-def main():
+def run1():
     SP = setup()
     # Exploit
     SP.stdin.write(b'set follow-fork-mode child\n')
@@ -55,6 +55,38 @@ def main():
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
     sleep(2)
+
+def run2():
+    SP = setup()
+    # Exploit
+    SP.stdin.write(b'set follow-fork-mode child\n')
+    SP.stdin.write(b'set pagination off\n')
+    SP.stdin.write(b'b* 0x0403395\n')
+    SP.stdin.write(b'b* 0x04033e8\n')
+    SP.stdin.write(b'b* 0x04033fb\n')
+    SP.stdin.write(b'r\n')
+    #SP.stdin.flush()
+    sleep(1)
+    RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
+    to_kill.append(RP.pid)
+    to_write = 'set $eax = 0x8da8a1\n'.encode()
+    print(to_write)
+    SP.stdin.write(to_write)
+    SP.stdin.write(b'c\n')
+    SP.stdin.write('set $rdi = 0x4ce296\n'.encode())
+    SP.stdin.write(b'c\n')
+    SP.stdin.write('set $al = 0x13\n'.encode())
+    SP.stdin.write(b'c\n')
+    SP.stdin.flush()
+    #code.interact(local=locals())
+    sleep(2)
+
+def main():
+    try:
+        run1()
+    except:
+        pass
+    run2()
 
 if __name__ == "__main__":
     try:
