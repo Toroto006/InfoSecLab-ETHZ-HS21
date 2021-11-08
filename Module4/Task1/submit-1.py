@@ -8,10 +8,10 @@ import select
 
 to_kill = []
 
-#path = "/home/isl/t1/"
-#node_prefix = ""
-path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task1/"
-node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
+path = "/home/isl/t1/"
+node_prefix = ""
+#path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task1/"
+#node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
 
 def cleanUp():
     for k in to_kill:
