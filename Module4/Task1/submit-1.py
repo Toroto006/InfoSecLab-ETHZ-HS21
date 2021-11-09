@@ -23,6 +23,7 @@ def cleanUp():
 
 def setup() -> subprocess.Popen:
     os.system("pkill -9 gdb")
+    os.system("pkill -9 node")
     os.system("pkill -9 string_parser")
     #  Ensure that you start M, P and SP before starting RP to guarantee correct operation
     M = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}manager"])
@@ -46,12 +47,12 @@ def run1():
     sleep(1)
     RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
     to_kill.append(RP.pid)
-    to_write = 'set {char[42]}0x7fffffffdb70 = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
-    SP.stdin.write(b'x /s 0x7fffffffdb70\n')
+    to_write = 'set {char[42]}0x7fffffffe280 = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
+    SP.stdin.write(b'x /s 0x7fffffffe280\n')
     print(to_write)
     SP.stdin.write(b'c\n')
     SP.stdin.write(to_write)
-    SP.stdin.write(b'x /s 0x7fffffffdb70\n')
+    SP.stdin.write(b'x /s 0x7fffffffe280\n')
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
     sleep(2)
@@ -79,14 +80,14 @@ def run2():
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
     #code.interact(local=locals())
-    sleep(2)
+    sleep(15)
 
 def main():
     try:
         run1()
     except:
         pass
-    run2()
+    #run2()
 
 if __name__ == "__main__":
     try:
