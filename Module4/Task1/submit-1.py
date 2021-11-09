@@ -21,20 +21,31 @@ def cleanUp():
             pass
 
 def setup() -> subprocess.Popen:
-    os.system("pkill -9 gdb")
-    os.system("pkill -9 string_parser")
-    sleep(1)
+    #os.system("pkill -9 gdb")
+    #os.system("pkill -9 node")
+    #os.system("pkill -9 string_parser")
+    #sleep(2)
     #  Ensure that you start M, P and SP before starting RP to guarantee correct operation
-    M = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}manager"])
+    M = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}manager", "&"])
     to_kill.append(M.pid)
-    P = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}peripheral"])
+    P = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}peripheral", "&"])
     to_kill.append(P.pid)
     sleep(2)
-    SP = subprocess.Popen(["gdb", f"{path}string_parser"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    #SP = subprocess.Popen([f"{path}string_parser"], stdin=subprocess.PIPE)
+    #SP = subprocess.Popen(["gdb", f"{path}string_parser"], stdin=subprocess.PIPE)
+    SP = subprocess.Popen([f"{path}string_parser"], stdin=subprocess.PIPE)
     to_kill.append(SP.pid)
     print("Setup done, let's now do the request")
     return SP
+
+def testRun():
+    SP = setup()
+    # Exploit
+    #SP.stdin.write(b'r\n')
+    #SP.stdin.flush()
+    sleep(2)
+    RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
+    to_kill.append(RP.pid)
+    sleep(2)
 
 def run1():
     SP = setup()
@@ -44,7 +55,7 @@ def run1():
     SP.stdin.write(b'b* gcm_crypt_and_tag\n')
     SP.stdin.write(b'r\n')
     SP.stdin.flush()
-    sleep(3)
+    sleep(10)
     RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
     to_kill.append(RP.pid)
     sleep(2)
@@ -106,7 +117,8 @@ def run2():
 
 def main():
     try:
-        run1()
+        testRun()
+        #run1()
     except:
         pass
     #run2()
