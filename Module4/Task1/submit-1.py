@@ -3,8 +3,7 @@ import os
 import subprocess
 import signal
 from time import sleep
-import code
-import select
+import re
 
 to_kill = []
 
@@ -31,7 +30,7 @@ def setup() -> subprocess.Popen:
     P = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}peripheral"])
     to_kill.append(P.pid)
     sleep(1)
-    SP = subprocess.Popen(["gdb", f"{path}string_parser"], stdin=subprocess.PIPE)
+    SP = subprocess.Popen(["gdb", f"{path}string_parser"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     #SP = subprocess.Popen([f"{path}string_parser"], stdin=subprocess.PIPE)
     to_kill.append(SP.pid)
     print("Setup done, let's now do the request")
@@ -47,14 +46,28 @@ def run1():
     sleep(1)
     RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
     to_kill.append(RP.pid)
-    to_write = 'set {char[42]}0x7fffffffe280 = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
-    SP.stdin.write(b'x /s 0x7fffffffe280\n')
-    print(to_write)
-    SP.stdin.write(b'c\n')
-    SP.stdin.write(to_write)
-    SP.stdin.write(b'x /s 0x7fffffffe280\n')
+    # get the info
+    info = b""
+    while b"input=0x518" not in info:
+        info = SP.stdout.readline()
+    print(f"Found input=0x518, lets go on.")
     SP.stdin.write(b'c\n')
     SP.stdin.flush()
+    
+    info = ""
+    while "input=0x7ff" not in info:
+        info = SP.stdout.readline().decode()
+    regex = r"input=(0x[0-9a-f]*) "
+    addr = re.findall(regex, info, re.MULTILINE)[0]
+    print(f"Found input addr at {addr}")
+    to_write = f'set {{char[42]}}{addr} = "<mes><action type=\\"key-update\\"/></mes>"\n'.encode()
+    SP.stdin.write(to_write)
+    SP.stdin.write(f'x /s {addr}\n'.encode())
+    SP.stdin.write(b'c\n')
+    SP.stdin.flush()
+    
+    SP.stdin.close()
+    SP.stdout.close()
     sleep(2)
 
 def run2():
@@ -87,7 +100,7 @@ def main():
         run1()
     except:
         pass
-    #run2()
+    run2()
 
 if __name__ == "__main__":
     try:
