@@ -85,7 +85,7 @@ def run2():
     #code.interact(local=locals())
     SP.stdin.close()
     SP.stdout.close()
-    sleep(15)
+    sleep(10)
 
 def main():
     try:
@@ -104,7 +104,6 @@ if __name__ == "__main__":
         print(f"An error occured in main!")
     finally:
         cleanUp()
-    os.system("cd /home/isl/t1  && /home/isl/t1/run_manager.sh ")
-    os.system("cd /home/isl/t1  && /home/isl/t1/run_peripheral.sh ")
-    os.system("cd /home/isl/t1  && /home/isl/t1/run_string_parser.sh ")
+    os.system("cd /home/isl/t1 && /home/isl/t1/run.sh")
+    print("Exploit done")
     exit()
