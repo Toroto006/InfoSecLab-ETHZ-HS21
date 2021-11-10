@@ -85,7 +85,7 @@ def run2():
     #code.interact(local=locals())
     SP.stdin.close()
     SP.stdout.close()
-    sleep(10)
+    sleep(6)
 
 def main():
     try:
