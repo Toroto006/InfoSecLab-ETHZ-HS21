@@ -5,45 +5,56 @@ import signal
 from time import sleep
 import code
 import select
-
-to_kill = []
+import requests
+from requests.exceptions import ConnectionError
 
 path = "/home/isl/t2/"
 node_prefix = ""
-path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task2/"
-node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
+#path = "/mnt/hgfs/VMwareMain/ETH/Lab/Module4/Task2/"
+#node_prefix = "/home/toroto006/Downloads/node-v16.13.0-linux-x64/bin/"
+
+enclave_uri = "http://127.0.0.1:37100"
+peripheral_uri = "http://127.0.0.1:37200"
 
 def cleanUp():
-    for k in to_kill:
-        try:
-            os.kill(k, signal.SIGTERM)
-            print(f"Kill of {k} successful")
-        except:
-            pass
+    os.system("pkill -9 node")
 
 def setup() -> subprocess.Popen:
-    #os.system("pkill -9 gdb")
-    #os.system("pkill -9 string_parser")
     #  Ensure that you start M, P and SP before starting RP to guarantee correct operation
-    P = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}peripheral"])
-    to_kill.append(P.pid)
+    P = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}peripheral"], stdin=subprocess.PIPE,  stdout=subprocess.PIPE)
+    sleep(1)
+    E = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}enclave"], stdin=subprocess.PIPE,  stdout=subprocess.PIPE)
     sleep(2)
-    E = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}enclave"])
-    to_kill.append(E.pid)
     print("Setup done, let's now do the request")
+    return P, E
+
+def readuntil(w, s, name):
+    line = ""
+    while s not in line:
+        line = w.stdout.readline().decode().rstrip()
+        print(f"{name}<{line}")
+    return s
+
+def injectHello(P):
+    readuntil(P, "Store takes some time", "PwaitS")
+    msg = '<start_messages><mes cd="hello"></mes></start_messages>'
+    try:
+        rep = requests.post(f"{peripheral_uri}/AAAA")
+        if rep.status_code == 200:
+            print(f"P req returned {rep.text}")
+        else:
+            print(f"P got {rep}")
+    except ConnectionError:
+        print("ERROR: An error occurred")
 
 def main():
-    setup()
+    P, E = setup()
     # Exploit
-    #SP.stdin.write(b'r\n')
-    #SP.stdin.flush()
-    sleep(5)
-    #RP = subprocess.Popen([f"{node_prefix}node", "--no-warnings", f"{path}remote_party"])
-    #to_kill.append(RP.pid)
-    to_write = 'set $eax = 0x8da8a1\n'.encode()
-    #SP.stdin.flush()
+    injectHello(P)
+    #readuntil(E, "Enclave connected", "E")
 
 if __name__ == "__main__":
+    cleanUp()
     try:
         main()
     except Exception as e:
@@ -51,3 +62,6 @@ if __name__ == "__main__":
         print(f"An error occured in main!")
     finally:
         cleanUp()
+    #os.system("cd /home/isl/t2 && /home/isl/t2/run.sh")
+    print("Exploit done")
+    exit()

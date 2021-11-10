@@ -1,0 +1,8 @@
+ls -lah /dev/vm*
+crw------- 1 root root  10, 51 Nov 10 13:51 /dev/vmci
+crw------- 1 root root  10, 52 Nov 10 13:51 /dev/vmmon
+crw------- 1 root root 119,  0 Nov 10 13:51 /dev/vmnet0
+crw------- 1 root root 119,  1 Nov 10 13:51 /dev/vmnet1
+crw------- 1 root root 119,  8 Nov 10 13:51 /dev/vmnet8
+
+sudo chmod a+rw /dev/vmnet0
