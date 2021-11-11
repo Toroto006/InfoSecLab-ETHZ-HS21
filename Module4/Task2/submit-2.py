@@ -129,11 +129,13 @@ def injectRandTwoFlags():
         try:
             rep = requests.post(f"{uri}/{api}", data=msg, headers=headers)
             if rep.status_code == 200:
-                print(f"{who}<{rep.text.rstrip()}")
+                pass
+                #print(f"{who}<{rep.text.rstrip()}")
             elif rep.status_code ==404:
                 pass
             else:
-                print(f"{who} ERROR: {rep}")
+                pass
+                #print(f"{who} ERROR: {rep}")
         except ConnectionError:
             print("ERROR: An error occurred")
         sleep(0.05)
@@ -152,6 +154,7 @@ def main():
     print(rand_it)
 
 if __name__ == "__main__":
+    cleanUp()
     try:
         main()
     except Exception as e:
@@ -159,6 +162,6 @@ if __name__ == "__main__":
         print(f"An error occured in main!")
     finally:
         cleanUp()
-    #os.system("cd /home/isl/t2 && /home/isl/t2/run.sh")
+    os.system("cd /home/isl/t2 && /home/isl/t2/run.sh")
     print("Exploit done")
     exit()
