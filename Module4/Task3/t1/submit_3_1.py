@@ -25,7 +25,7 @@ def blocking_on(addresses, stop_block):
 
 def parse_interesting(filename):
     addresses = []
-    print(f"Doing {filename}")
+    #print(f"Doing {filename}")
     with open(filename, "r") as trace:
         for line in trace:
             if "E:" in line and ":C:" in line:
@@ -43,7 +43,7 @@ def parse_interesting(filename):
     # These are the comparision blocks
     comp_blocks = blocking_on(comp, end_loop_add)
     # prepare guess string
-    name = os.path.basename(filename)
+    name = os.path.basename(filename)[:-4]
     for i, cmp_blk in enumerate(comp_blocks[:-1]):
         if comparision_true_add.lower() in ''.join(cmp_blk):
             guesses.append(name[i])
@@ -72,13 +72,25 @@ def parse_interesting(filename):
             break
     assert correct is not None # only true if one found
 
-    return guesses
+    # Check if I have enough data
+    if correct:
+        # We have it fully correct
+        return guesses, False
+    if len(guesses) < len(name):
+        # We were able to reproduce it
+        return guesses, False
+    return guesses, True
 
-def test(path_folder):
+def runPaths(path_folder):
+    best_guess = []
+    b_partial = True
     for filename in glob.glob(os.path.join(path_folder, '*.txt')):
-        guesses = parse_interesting(filename)
-        print(guesses)
-        #exit()
+        guesses, partial = parse_interesting(filename)
+        if len(guesses) > len(best_guess):
+            best_guess = guesses
+        if not partial:
+            b_partial = False    
+    return best_guess, b_partial
 
 def main():
     if len(sys.argv) != 3:
@@ -86,8 +98,14 @@ def main():
     path_folder = sys.argv[1]
     id = sys.argv[2]
     output = f"output/oput_{id}"
-    print(f"Running on {path_folder} with {id} and output to {output}")
-    test(path_folder)
+    #print(f"Running on {path_folder} with {id} and output to {output}")
+    guess, partial = runPaths(path_folder)
+    guess_s = ''.join(guess)
+    #print(f"Found {guess_s} with partial {partial}")
+    out_s = f"{guess_s},{'partial' if partial else 'complete'}"
+    with open(output, "w") as out:
+        out.writelines(out_s)
+        print(f"Wrote {out_s}")
 
 if __name__ == "__main__":
     main()
