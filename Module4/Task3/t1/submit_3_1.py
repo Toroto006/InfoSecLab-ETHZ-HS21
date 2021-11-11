@@ -9,6 +9,7 @@ comparision_true_add =  "401211"
 end_loop_add =          "401288"
 distance_add_add =      "40126F"
 wrap_j_hit_add =        "40127E"
+equal_true_add =        "4012A3"
 correct_add =           "40140C"
 wrong_add =             "401413"
 
@@ -71,10 +72,12 @@ def parse_interesting(filename):
             correct = False
             break
     assert correct is not None # only true if one found
-
     # Check if I have enough data
     if correct:
         # We have it fully correct
+        return guesses, False
+    if equal_true_add.lower() in ''.join(last_block) and len(guesses) == len(name):
+        # The return does a comparision with an &&, where the && lets us check it
         return guesses, False
     if len(guesses) < len(name):
         # We were able to reproduce it
@@ -103,9 +106,9 @@ def main():
     guess_s = ''.join(guess)
     #print(f"Found {guess_s} with partial {partial}")
     out_s = f"{guess_s},{'partial' if partial else 'complete'}"
+    #print(f"Wrote {out_s}")
     with open(output, "w") as out:
         out.writelines(out_s)
-        #print(f"Wrote {out_s}")
 
 if __name__ == "__main__":
     main()
