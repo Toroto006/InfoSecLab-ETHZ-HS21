@@ -97,7 +97,7 @@ def main():
         print(f"This code expects two arguments! arg1: /path/to/traces/folder arg2: id")
     path_folder = sys.argv[1]
     id = sys.argv[2]
-    output = f"output/oput_{id}"
+    output = f"/home/sgx/isl/t1/output/oput_{id}"
     #print(f"Running on {path_folder} with {id} and output to {output}")
     guess, partial = runPaths(path_folder)
     guess_s = ''.join(guess)
@@ -105,7 +105,7 @@ def main():
     out_s = f"{guess_s},{'partial' if partial else 'complete'}"
     with open(output, "w") as out:
         out.writelines(out_s)
-        print(f"Wrote {out_s}")
+        #print(f"Wrote {out_s}")
 
 if __name__ == "__main__":
     main()
