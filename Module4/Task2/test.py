@@ -15,14 +15,15 @@ def splitM(m):
     iv = hexenc[:32]
     hexenc = hexenc[32:]
     print(f"IV: {iv}")
-    print(f"hexenc without IV: {hexenc}\n")
+    print(f"hexenc without IV: {hexenc}")
+    print(f"formatted for replay: {contt}{{ts}}{mac}{iv}{hexenc}")
 
-for filename in glob.glob(os.path.join("/home/isl/t2/share/Module4/", 'hello*.out')):
+for filename in glob.glob(os.path.join("/home/isl/t2/share/Module4/", '*.out')):
     print(filename)
     with open(os.path.join(os.getcwd(), filename), 'r') as f: # open in readonly mode
-        hexstream = f.readline().rstrip()[132:] # 132 is the garbage before
-        s = bytes.fromhex(hexstream).decode().rstrip().split('\n')
-        #print(f"{s[-1]}\n")
+        hexstream = f.readline().rstrip()
+        s = bytes.fromhex(hexstream)[132:].decode().rstrip().split('\n') # 132 is the garbage before
+        print(f"{bytes.fromhex(hexstream)}\n")
         splitM(s[-1])
 
 ts = str(int(time.time()*1000))+"$00"
