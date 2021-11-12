@@ -26,6 +26,7 @@ def grading_t1(userID):
     
     fileoutput = ""
     status = ""
+    points = 0
 
     status = "Grading Task 1; Mat-Nr: " + str(userID)
     fileoutput = fileoutput + status + "\n"
@@ -39,6 +40,7 @@ def grading_t1(userID):
         if flag_1_orig in flag:
             status = "T1_1: Correct Result - 10P"
             fileoutput = fileoutput + status + "\n"
+            points = points + 10
             print(status)
         else:
             status = "T1_1: Invalid Flag - 0P"
@@ -62,6 +64,7 @@ def grading_t1(userID):
         if flag_2_orig in flag:
             status = "T1_2: Correct Result - 15P"
             fileoutput = fileoutput + status + "\n"
+            points = points + 15
             print(status)
         else:
             status = "T1_2: Invalid Flag - 0P"
@@ -76,7 +79,54 @@ def grading_t1(userID):
         status = "T1_2: Error during Flag validation - 0P"
         fileoutput = fileoutput + status + "\n"
         print(status)
+
         
+        
+    #Testing for Healthcheck
+    try:
+        f = open("./testlog.otp")
+        lines = f.readlines()
+        ret = 0
+        for line in lines:
+            if "Manager HealthCheck successful!" in line:
+                ret = 1
+                break
+        if (ret == 0):
+            raise Exception("Manager not online!")
+        
+        ret = 0
+        for line in lines:
+            if "Peripheral HealthCheck successful!" in line:
+                ret = 1
+                break
+        if (ret == 0):
+            raise Exception("Peripheral not online!")
+        
+        ret = 0
+        for line in lines:
+            if "StringParser HealthCheck successful!" in line:
+                ret = 1
+                break
+        if (ret == 0):
+            raise Exception("StringParser not online!")
+        
+        f.close()
+
+        status = "All Healtchecks successful!"
+        fileoutput = fileoutput +status + "\n"
+
+    except Exception as e:
+        status = str(e)
+        print(e)
+        fileoutput = fileoutput + status + "\n"
+        status = "Healthcheck unsuccessful - task failed, deducting all points (" + str(points) + ")"
+        fileoutput = fileoutput + status + "\n"
+        points = 0
+        print(status)
+
+    status = "SUM: " + str(points) + " points"
+    fileoutput = fileoutput + status + "\n"
+    print(status)
     
     try:
         gradingOutputLog = open("./grade-t1-" + str(userID), 'w')
