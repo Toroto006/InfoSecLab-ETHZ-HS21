@@ -75,7 +75,7 @@ def parse_interesting(filename):
 def pinRun():
     path_folder = "/home/sgx/isl/t2/"
     for i in range(ord('a'), ord('z')+1):
-        guess = chr(i)*100
+        guess = chr(i)*35 # let's do 5 more than necessary
         filename = f"{path_folder}{guess}.guess"
         runPin = f"cd /home/sgx/pin-3.11-97998-g7ecce2dac-gcc-linux-master/source/tools/SGXTrace && ../../../pin -t ./obj-intel64/SGXTrace.so -o {filename} -trace 1 -- ~/isl/t2/password_checker_2 {guess}"
         os.system(runPin)
