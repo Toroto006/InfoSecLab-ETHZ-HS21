@@ -30,7 +30,7 @@ echo 'copied solution script to VM'
 ssh -p $SSH_PORT -i ./id_rsa  $USERNAME@localhost rm -f $SCRIPT_FOLDER/flag-2*
 echo 'removed any old flag files'
 
-ssh -p $SSH_PORT -i ./id_rsa  $USERNAME@localhost timeout 30s python3 $SCRIPT_FOLDER/submit-2.py &
+ssh -p $SSH_PORT -i ./id_rsa  $USERNAME@localhost timeout 30s python3 $SCRIPT_FOLDER/$1 &
 sleep 30
 ssh -p $SSH_PORT -i ./id_rsa  $USERNAME@localhost pkill -9 python3 
 
