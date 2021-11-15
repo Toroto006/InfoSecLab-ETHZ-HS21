@@ -15,30 +15,31 @@ The traces for (qwerty, qwerty), (magicbeans, magic), and (justmagic, magicbeans
 can be different because the length of the guesses differ.
 */
 
-int check_password(char* p, char* i, int i_size) {
+int check_password(char* p, int p_size, char* guess, int i_size) {
+	fprintf(stderr, "password: %s and len: %ld\n", p, strlen(p));
 	/*
-	The hcorrecti password in this file is padded with dollars ($) on both sides using the following
+	The correct password in this file is padded with dollars ($) on both sides using the following
 	scheme: the first 15 − l $s followed by l characters of the correct password, followed by 15 − l
 	$s. For example, if the correct password is magicbeans, the file will contain
 	$$$$$magicbeans$$$$$.
 	*/
 	// Do the same to the guess
-
+	int dol_add = 15-i_size;
+	size_t guess_len = dol_add*2 + i_size;
+	char addr [46] = "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\0";
+	// Copy guess
+	for(int i = dol_add; i < dol_add+i_size; i++) 
+		addr[i] = guess[i-dol_add];
+	fprintf(stderr, "guessBuf: %s\n", addr);
 	// Now do the comparision
-	int k = 0;
-	int max_length = 15; //check always over all 15 chars
+	int gs = 0;
+	int ps = 0;
 	int pos = 0;
-	for (pos = 0; pos < max_length; pos++)	{
-		if (p[pos] == i[pos]) {
-			k++;
-		}
+	for (pos = 0; pos < 46; pos++)	{
+		ps += p[pos];
+		gs += addr[pos];
 	}
-
-	if (k == 15)
-		return 1;
-	else 
-		return 0;
-
+	return gs == ps;
 }
 
 //assumptions: password only has small characters [a, z], maximum length is 15 characters
@@ -49,9 +50,8 @@ int main (int argc, char* argv[])	{
 		exit(EXIT_FAILURE);
 	}
 
-
 	FILE* password_file;
-	char password [16] = "\0";
+	char password [46] = "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\0";
 	
 	size_t len = 0;
 	char* line;
@@ -61,11 +61,12 @@ int main (int argc, char* argv[])	{
 		perror("cannot open password file\n");
 		exit(EXIT_FAILURE);
 	}
-
-	fscanf(password_file, "%s", password);
+	
+	for(int i = 0; i < 17; i++)
+		password[i] = fgetc(password_file);
 
 	int is_match = 0; 
-	is_match = check_password(password, argv[1], strlen(argv[1]));
+	is_match = check_password(password, strlen(password), argv[1], strlen(argv[1]));
 	
 	FILE* output_file;
 	output_file = fopen (argv[2], "wb");

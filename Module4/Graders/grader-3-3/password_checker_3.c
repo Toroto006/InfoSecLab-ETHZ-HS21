@@ -1,0 +1,1 @@
+../../Task3/t3_3/password_checker_3.c
