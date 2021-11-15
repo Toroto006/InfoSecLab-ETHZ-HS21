@@ -98,15 +98,6 @@ def lastone():
                     mac = (hashlib.sha256(enc_body).hexdigest())
                  #   print(mac)
                     pkt = type + timee + mac + enc_body.hex()
-                 #   print(pkt)
-                 #   print(admintwo)
-                 #   print(admin)
-                #    try:		
-	         #           requests.post(url+"/admin",pkt)
-                  #  except:		
-	           #         print("failed")		
-	            #        setup()
-	             #       continue
                     print(pkt)
                     for i in range(0,10):
 	                    requests.post(url+"/admin",pkt)
