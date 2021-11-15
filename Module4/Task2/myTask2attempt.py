@@ -89,7 +89,6 @@ def try_command(command,iv,enc_msg,typ,timeee,ptxt, old_mac):
 
 def try_command_2(iv,enc_msg,typ,timee,ptxt, old_mac):
     ptxt_one = ptxt[0:16]
-    ptxt_two = ptxt[16:32]
     ptxt_three = ptxt[32:] 
     ptxt_three = ptxt_three + b'\x00'*(16-len(ptxt_three))
     desired_one =   b'<start_cmd>"gggg' #block 1
@@ -98,10 +97,7 @@ def try_command_2(iv,enc_msg,typ,timee,ptxt, old_mac):
     desired_seven = b'ggg"</start_cmd>' #block 7
     iv = bytes.fromhex("11111111111111111111111111111111")
     new_iv = xor(iv, xor(desired_one,ptxt_one))
-    #print(new_iv)
-    #print(enc_msg)
     enc_msg = bytes.fromhex(enc_msg) 
-    #print(enc_msg)
     body_block_one = enc_msg[0:16]
     body_block_two = xor(enc_msg[16:32],xor(ptxt_three,desired_three))
     body_block_three = enc_msg[32:48]
@@ -109,18 +105,11 @@ def try_command_2(iv,enc_msg,typ,timee,ptxt, old_mac):
     body_block_five = enc_msg[64:80]
     body_block_six = xor(enc_msg[80:96],xor(desired_seven,b'\x00'*len(desired_seven)))
     body_block_seven = enc_msg[96:112]
-    #  body_block_eight = xor_bytes(enc_msg[112:128],desired_five,0)
-    #  body_block_nine = enc_msg[128:144]
-    #print(desired_one + desired_three + desired_five + desired_seven)
-    #print(len(enc_msg))
     enc_msg_temp = body_block_one + body_block_two + body_block_three + body_block_four + body_block_five + body_block_six + body_block_seven 
     enc_msg = enc_msg_temp + enc_msg[len(enc_msg_temp):]
     enc_body = new_iv + enc_msg
-    #print(enc_body)
-    #print(enc_body.hex())
 
     mac = (hashlib.sha256(enc_body).hexdigest())
-    #   print(mac)
     pkt = typ + timee + mac + enc_body.hex()
     splitM(pkt)
     return pkt
