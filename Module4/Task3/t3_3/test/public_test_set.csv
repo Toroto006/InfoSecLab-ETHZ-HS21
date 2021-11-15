@@ -13,3 +13,11 @@ qwerty,magicbeans,0
 qwerty,wholetmein,0
 wholetmein,magicbeans,0
 wholetmein,wholetmein,1
+wholetmein,magicbee,0
+magicbee,magicbee,1
+magicbee,wholetmein,0
+wholetmeaa,wholetmeaa,1
+wholetmeab,wholetmeaa,0
+a,wholetmeaa,0
+a,a,1
+wholetmeaa,,0
