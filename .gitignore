@@ -146,3 +146,5 @@ Module5/.vscode/
 Module2/TLS/*_temp.txt
 *.ova
 *.zip
+Module5/.vscode/
+Module5/venv
