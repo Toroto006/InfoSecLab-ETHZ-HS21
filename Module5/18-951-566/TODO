@@ -1,0 +1,6 @@
+3b tripple check those internal offsets are okay
+4a address buffer in bss hardcoded okay??
+4b hardcoding bin sh offset? How to do it with r.libc
+4c same bin sh as 4b and then how to get text base
+5a again same text base for rop gadgets
+6b double check that the jump bug addr is fine (should be as it is a no PIE)
